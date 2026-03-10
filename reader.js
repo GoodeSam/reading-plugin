@@ -721,6 +721,8 @@ function goToPage(pageIndex, resetScroll = true) {
   if (resetScroll) readerContent.scrollTop = 0;
 }
 
+window.goToPage = goToPage;
+
 function renderPage() {
   const page = state.pages[state.currentPage];
   readerContent.innerHTML = '';
@@ -769,6 +771,49 @@ function updateNav() {
   prevPageBtn.disabled = state.currentPage === 0;
   nextPageBtn.disabled = state.currentPage >= state.totalPages - 1;
 }
+
+// ===== Page Selection =====
+pageIndicator.addEventListener('click', () => {
+  // Don't create duplicate input
+  if (document.getElementById('pageSelectInput')) return;
+
+  pageIndicator.style.display = 'none';
+
+  const input = document.createElement('input');
+  input.id = 'pageSelectInput';
+  input.type = 'number';
+  input.className = 'page-select-input';
+  input.min = 1;
+  input.max = state.totalPages;
+  input.value = state.currentPage + 1;
+
+  function closeInput() {
+    if (input.parentNode) input.parentNode.removeChild(input);
+    pageIndicator.style.display = '';
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const num = parseInt(input.value, 10);
+      if (!isNaN(num) && num >= 1 && num <= state.totalPages) {
+        goToPage(num - 1);
+      }
+      closeInput();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeInput();
+    }
+  });
+
+  input.addEventListener('blur', () => {
+    closeInput();
+  });
+
+  pageIndicator.parentNode.insertBefore(input, pageIndicator.nextSibling);
+  input.focus();
+  input.select();
+});
 
 // ===== Sentence Panel =====
 function openSentencePanel(sentenceEl) {
