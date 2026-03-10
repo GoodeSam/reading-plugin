@@ -21,6 +21,9 @@ let state = {
   contentWidth: 800,
 };
 
+// Expose state for testing
+window._readerState = state;
+
 const SENTENCES_PER_PAGE = 40;
 
 // ===== DOM Elements =====
@@ -226,6 +229,7 @@ function bindEvents() {
     readerScreen.classList.remove('active');
     uploadScreen.classList.add('active');
     notesToggle.classList.remove('visible');
+    historyToggle.classList.remove('visible');
   });
   prevPageBtn.addEventListener('click', () => goToPage(state.currentPage - 1));
   nextPageBtn.addEventListener('click', () => goToPage(state.currentPage + 1));
@@ -453,6 +457,7 @@ async function handleFile(file) {
     uploadScreen.classList.remove('active');
     readerScreen.classList.add('active');
     notesToggle.classList.add('visible');
+    historyToggle.classList.add('visible');
 
     updateBookmarkIcon();
 
@@ -1301,3 +1306,178 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ===== Reading History =====
+const MAX_HISTORY_ENTRIES = 50;
+
+// History DOM elements
+const historyToggle = $('#historyToggle');
+const historyPanel = $('#historyPanel');
+const historyClose = $('#historyClose');
+const historyList = $('#historyList');
+const historyClear = $('#historyClear');
+
+function loadHistory() {
+  const raw = localStorage.getItem('reader-history');
+  return raw ? JSON.parse(raw) : [];
+}
+
+function saveHistoryToStorage(history) {
+  localStorage.setItem('reader-history', JSON.stringify(history));
+}
+
+function saveReadingHistory() {
+  if (!state.fileName) return;
+
+  const entry = {
+    fileName: state.fileName,
+    page: state.currentPage,
+    scrollTop: readerContent.scrollTop,
+    totalPages: state.totalPages,
+    date: new Date().toISOString(),
+  };
+
+  let history = loadHistory();
+
+  // Deduplicate: remove existing entry for same file+page
+  history = history.filter(h => !(h.fileName === entry.fileName && h.page === entry.page));
+
+  history.push(entry);
+
+  // Cap at MAX_HISTORY_ENTRIES — keep the most recent
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history = history.slice(history.length - MAX_HISTORY_ENTRIES);
+  }
+
+  saveHistoryToStorage(history);
+}
+
+// Expose for testing
+window.saveReadingHistory = saveReadingHistory;
+
+function renderHistory() {
+  historyList.innerHTML = '';
+  const history = loadHistory();
+  const fileHistory = history
+    .filter(h => h.fileName === state.fileName)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  if (fileHistory.length === 0) {
+    historyList.innerHTML = '<p style="color:#999; font-size:13px; text-align:center; padding:20px; font-family:sans-serif;">No reading history yet.</p>';
+    return;
+  }
+
+  for (const entry of fileHistory) {
+    const el = document.createElement('div');
+    el.className = 'history-item';
+    const d = new Date(entry.date);
+    const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    el.innerHTML = `<div class="history-page">Page ${entry.page + 1} / ${entry.totalPages}</div><div class="history-date">${dateStr}</div>`;
+    el.addEventListener('click', () => {
+      goToPage(entry.page, false);
+      requestAnimationFrame(() => {
+        readerContent.scrollTop = entry.scrollTop;
+      });
+    });
+    historyList.appendChild(el);
+  }
+}
+
+// Expose for testing
+window.renderHistory = renderHistory;
+
+function clearHistory() {
+  let history = loadHistory();
+  history = history.filter(h => h.fileName !== state.fileName);
+  saveHistoryToStorage(history);
+  renderHistory();
+}
+
+// Expose for testing
+window.clearHistory = clearHistory;
+
+// Auto-save triggers
+window.addEventListener('beforeunload', () => {
+  saveReadingHistory();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    saveReadingHistory();
+  }
+});
+
+// History panel toggle/close
+historyToggle.addEventListener('click', () => {
+  historyPanel.classList.toggle('active');
+  renderHistory();
+});
+historyClose.addEventListener('click', () => {
+  historyPanel.classList.remove('active');
+});
+historyClear.addEventListener('click', clearHistory);
+
+// ===== Auto-Hide Bars =====
+const AUTO_HIDE_DELAY = 3000;
+const EDGE_TRIGGER_PX = 50;
+let autoHideTimer = null;
+
+function startAutoHideTimer() {
+  clearAutoHideTimer();
+  autoHideTimer = setTimeout(() => {
+    if (!readerScreen.classList.contains('active')) return;
+    const topBar = document.querySelector('.top-bar');
+    const bottomBar = document.querySelector('.bottom-bar');
+    const searchBarEl = document.getElementById('searchBar');
+    if (topBar) topBar.classList.add('auto-hide');
+    if (bottomBar) bottomBar.classList.add('auto-hide');
+    if (searchBarEl) searchBarEl.classList.add('auto-hide');
+  }, AUTO_HIDE_DELAY);
+}
+
+function clearAutoHideTimer() {
+  if (autoHideTimer !== null) {
+    clearTimeout(autoHideTimer);
+    autoHideTimer = null;
+  }
+}
+
+function showBars() {
+  const topBar = document.querySelector('.top-bar');
+  const bottomBar = document.querySelector('.bottom-bar');
+  const searchBarEl = document.getElementById('searchBar');
+  if (topBar) topBar.classList.remove('auto-hide');
+  if (bottomBar) bottomBar.classList.remove('auto-hide');
+  if (searchBarEl) searchBarEl.classList.remove('auto-hide');
+}
+
+document.addEventListener('mousemove', (e) => {
+  if (!readerScreen.classList.contains('active')) return;
+
+  const atTop = e.clientY < EDGE_TRIGGER_PX;
+  const atBottom = e.clientY > (window.innerHeight - EDGE_TRIGGER_PX);
+
+  if (atTop || atBottom) {
+    showBars();
+    clearAutoHideTimer();
+  } else {
+    showBars();
+    startAutoHideTimer();
+  }
+});
+
+// Start auto-hide timer when entering reading mode
+const origHandleFile = handleFile;
+handleFile = async function(file) {
+  await origHandleFile(file);
+  startAutoHideTimer();
+};
+
+// Also start when DOMContentLoaded fires and reader is already active
+document.addEventListener('DOMContentLoaded', () => {
+  if (readerScreen.classList.contains('active')) {
+    startAutoHideTimer();
+    historyToggle.classList.add('visible');
+    notesToggle.classList.add('visible');
+  }
+});

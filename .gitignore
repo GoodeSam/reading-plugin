@@ -3,6 +3,7 @@
 Untitled-1.md
 process.md
 .claude/
+node_modules/
 
 # Secrets & credentials
 .env

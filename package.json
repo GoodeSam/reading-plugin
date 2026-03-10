@@ -1,0 +1,34 @@
+{
+  "name": "reading-plugin",
+  "version": "1.0.0",
+  "description": "",
+  "main": "popup.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GoodeSam/reading-plugin.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/GoodeSam/reading-plugin/issues"
+  },
+  "homepage": "https://github.com/GoodeSam/reading-plugin#readme",
+  "jest": {
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "/node_modules/(?!@exodus)"
+    ]
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "jsdom": "^24.1.3"
+  }
+}

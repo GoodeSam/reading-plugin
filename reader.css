@@ -66,6 +66,12 @@ body {
   border-bottom: 1px solid #e5ddd0;
   gap: 12px;
   flex-shrink: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.top-bar.auto-hide {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
 }
 .book-title {
   flex: 1;
@@ -89,6 +95,11 @@ body {
   flex-shrink: 0;
 }
 .search-bar.active { display: flex; }
+.search-bar.auto-hide {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
 .search-bar input {
   flex: 1;
   padding: 7px 12px;
@@ -197,6 +208,12 @@ body {
   border-top: 1px solid #e5ddd0;
   gap: 20px;
   flex-shrink: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.bottom-bar.auto-hide {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
 }
 .page-indicator {
   font-size: 14px;
@@ -394,6 +411,70 @@ body {
 }
 .note-item .note-delete:hover { color: #e11d48; }
 .notes-export {
+  margin: 12px 16px 16px;
+}
+
+/* ===== History Panel ===== */
+.history-toggle {
+  position: fixed;
+  bottom: 130px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: #0ea5e9;
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(14,165,233,0.4);
+  z-index: 50;
+  display: none;
+}
+.history-toggle.visible { display: block; }
+.history-panel {
+  display: none;
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 340px;
+  background: #fff;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+  z-index: 160;
+  flex-direction: column;
+}
+.history-panel.active { display: flex; }
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+  font-weight: 700;
+  font-family: sans-serif;
+}
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+.history-item {
+  background: #eff6ff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  border-left: 3px solid #3b82f6;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: sans-serif;
+}
+.history-item:hover { background: #dbeafe; }
+.history-item .history-page { font-weight: 600; color: #1d4ed8; }
+.history-item .history-date { font-size: 11px; color: #999; margin-top: 4px; }
+.history-clear {
   margin: 12px 16px 16px;
 }
 
