@@ -471,33 +471,82 @@ async function parsePDF(file) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const texts = [];
+
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const lines = [];
+
+    // Build structured lines: {text, x, y, gap}
+    const structuredLines = [];
     let currentLine = [];
     let lastY = null;
     for (const item of content.items) {
       if (!item.transform || item.str == null) continue;
       const y = Math.round(item.transform[5]);
       if (lastY !== null && Math.abs(y - lastY) > 2) {
-        lines.push(currentLine.map(it => it.str).join(''));
+        if (currentLine.length) {
+          const firstX = currentLine[0].transform[4];
+          structuredLines.push({
+            text: currentLine.map(it => it.str).join(''),
+            x: Math.round(firstX),
+            y: lastY,
+          });
+        }
         currentLine = [];
       }
       currentLine.push(item);
       lastY = y;
     }
-    if (currentLine.length) lines.push(currentLine.map(it => it.str).join(''));
+    if (currentLine.length) {
+      const firstX = currentLine[0].transform[4];
+      structuredLines.push({
+        text: currentLine.map(it => it.str).join(''),
+        x: Math.round(firstX),
+        y: lastY,
+      });
+    }
 
+    if (structuredLines.length === 0) continue;
+
+    // Compute the most common left X (body indent baseline)
+    const xCounts = {};
+    for (const ln of structuredLines) {
+      if (!ln.text.trim()) continue;
+      const rx = Math.round(ln.x / 3) * 3; // bucket to nearest 3
+      xCounts[rx] = (xCounts[rx] || 0) + 1;
+    }
+    const baselineX = Number(Object.entries(xCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 0);
+
+    // Compute the most common line gap (single line spacing)
+    const gaps = [];
+    for (let j = 1; j < structuredLines.length; j++) {
+      const gap = Math.abs(structuredLines[j - 1].y - structuredLines[j].y);
+      if (gap > 0) gaps.push(gap);
+    }
+    gaps.sort((a, b) => a - b);
+    const typicalGap = gaps.length > 0 ? gaps[Math.floor(gaps.length / 2)] : 14;
+
+    // Merge lines into paragraphs; break on blank line, large gap, or indentation
     let para = '';
-    for (const line of lines) {
-      const trimmed = line.trim();
+    for (let j = 0; j < structuredLines.length; j++) {
+      const ln = structuredLines[j];
+      const trimmed = ln.text.trim();
+
       if (!trimmed) {
         if (para.trim()) texts.push(para.trim());
         para = '';
-      } else {
-        para += (para && !para.endsWith('-') ? ' ' : '') + trimmed;
+        continue;
       }
+
+      const isIndented = ln.x > baselineX + 6;
+      const hasLargeGap = j > 0 && Math.abs(structuredLines[j - 1].y - ln.y) > typicalGap * 1.4;
+
+      if (para && (isIndented || hasLargeGap)) {
+        texts.push(para.trim());
+        para = '';
+      }
+
+      para += (para && !para.endsWith('-') ? ' ' : '') + trimmed;
     }
     if (para.trim()) texts.push(para.trim());
     texts.push('');
@@ -525,15 +574,36 @@ async function parseEPUB(file) {
       const doc = await section.load(book.load.bind(book));
       if (!doc) continue;
       const body = (doc.querySelector && doc.querySelector('body')) || doc;
-      const blocks = body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div, li, blockquote');
+      const blocks = body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
       if (blocks.length > 0) {
         for (const block of blocks) {
-          const text = block.textContent.trim();
-          if (text) texts.push(text);
+          // Split on <br> tags inside a block element
+          const parts = extractPartsWithBr(block);
+          for (const part of parts) {
+            const text = part.trim();
+            if (text) texts.push(text);
+          }
         }
       } else {
-        const text = body.textContent.trim();
-        if (text) texts.push(text);
+        // No semantic block elements — split plain text on line breaks + indentation
+        const raw = body.innerHTML || '';
+        if (raw.includes('<br')) {
+          const chunks = splitHtmlOnBr(body);
+          for (const chunk of chunks) {
+            const text = chunk.trim();
+            if (text) texts.push(text);
+          }
+        } else {
+          const text = body.textContent.trim();
+          if (text) {
+            // Detect paragraph breaks: newline followed by indentation (spaces/tabs)
+            const paras = text.split(/\n[ \t]+/);
+            for (const p of paras) {
+              const cleaned = p.replace(/\s+/g, ' ').trim();
+              if (cleaned) texts.push(cleaned);
+            }
+          }
+        }
       }
       section.unload();
     } catch (e) {
@@ -547,6 +617,57 @@ async function parseEPUB(file) {
   }
 
   return texts.join('\n\n');
+}
+
+// ===== EPUB Helpers =====
+function extractPartsWithBr(element) {
+  // Split a block element's content on <br> tags into separate paragraphs
+  const brs = element.querySelectorAll('br');
+  if (brs.length === 0) {
+    return [element.textContent];
+  }
+  // Clone and split on BRs
+  const parts = [];
+  const clone = element.cloneNode(true);
+  const html = clone.innerHTML;
+  const segments = html.split(/<br\s*\/?>/gi);
+  const temp = document.createElement('div');
+  for (const seg of segments) {
+    temp.innerHTML = seg;
+    const text = temp.textContent.trim();
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts : [element.textContent];
+}
+
+function splitHtmlOnBr(container) {
+  // For containers with no block elements, split on <br> and detect indentation
+  const html = container.innerHTML || '';
+  const segments = html.split(/<br\s*\/?>/gi);
+  const temp = document.createElement('div');
+  const results = [];
+  let current = '';
+
+  for (const seg of segments) {
+    temp.innerHTML = seg;
+    const raw = temp.textContent;
+    const text = raw.trim();
+    if (!text) {
+      // Empty line — flush
+      if (current.trim()) results.push(current.trim());
+      current = '';
+      continue;
+    }
+    // Detect indentation: raw text starts with spaces/tabs
+    const isIndented = /^[\s\t]{2,}/.test(raw) && raw.trimStart() !== raw;
+    if (current && isIndented) {
+      results.push(current.trim());
+      current = '';
+    }
+    current += (current ? ' ' : '') + text;
+  }
+  if (current.trim()) results.push(current.trim());
+  return results;
 }
 
 // ===== Text Processing =====

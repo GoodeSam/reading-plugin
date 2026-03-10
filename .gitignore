@@ -3,3 +3,11 @@
 Untitled-1.md
 process.md
 .claude/
+
+# Secrets & credentials
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.json
