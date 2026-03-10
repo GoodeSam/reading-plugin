@@ -558,6 +558,16 @@ body {
 .wordlist-item .wordlist-count { color: #999; font-size: 11px; float: right; }
 .wordlist-item .wordlist-cn { color: #555; font-size: 13px; margin-top: 3px; }
 .wordlist-item .wordlist-en { color: #777; font-size: 12px; margin-top: 2px; }
+.wordlist-item .wordlist-time { font-size: 11px; color: #999; margin-top: 4px; }
+.wordlist-item .wordlist-contexts { margin-top: 4px; }
+.wordlist-item .wordlist-ctx {
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid #d1d5db;
+  margin-top: 2px;
+}
 .wordlist-item .wordlist-delete {
   position: absolute;
   top: 6px;

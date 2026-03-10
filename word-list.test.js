@@ -1,15 +1,18 @@
 /**
  * TDD tests for word list feature.
  *
+ * Each entry stores: word, queryCount, englishDef, chineseDef, pronunciation,
+ * sentenceContext, book, and lastQueried timestamp.
+ *
  * Behaviour:
  *  - Every word looked up via the word popup is recorded in a word list.
- *  - Each entry stores: word, queryCount, englishDef, chineseDef, pronunciation,
- *    and the book it was queried from.
- *  - If the same word is queried again, queryCount increments and definitions update.
+ *  - If the same word is queried again, queryCount increments, definitions
+ *    update, and sentenceContext is appended (no duplicates).
  *  - Word list is persisted in localStorage under 'reader-wordlist'.
  *  - A sidebar panel displays the word list for the current book, sorted by
- *    queryCount descending (most queried first).
- *  - The word list is exportable as a Markdown file.
+ *    queryCount descending, showing word, pronunciation, count, query time,
+ *    Chinese definition, and sentence context.
+ *  - The word list is exportable as a Markdown file including all fields.
  *  - Individual words can be deleted from the list.
  */
 
@@ -71,9 +74,12 @@ afterEach(() => {
   dom.window.close();
 });
 
+// ============================================================
+// Recording
+// ============================================================
 describe('word list — recording words', () => {
 
-  test('recordWord() stores a word entry in localStorage', () => {
+  test('recordWord() stores a word entry with all fields', () => {
     setReaderState(win, { fileName: 'book.pdf' });
 
     win.recordWord({
@@ -81,11 +87,10 @@ describe('word list — recording words', () => {
       englishDef: '(adj.) lasting a very short time',
       chineseDef: '\u77ed\u6682\u7684',
       pronunciation: '/\u026a\u02c8f\u025bm\u0259r\u0259l/',
+      sentenceContext: 'It was an ephemeral moment of joy.',
     });
 
-    const raw = win.localStorage.getItem('reader-wordlist');
-    expect(raw).toBeTruthy();
-    const list = JSON.parse(raw);
+    const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
     expect(list.length).toBe(1);
     expect(list[0].word).toBe('ephemeral');
     expect(list[0].englishDef).toBe('(adj.) lasting a very short time');
@@ -93,19 +98,19 @@ describe('word list — recording words', () => {
     expect(list[0].pronunciation).toBe('/\u026a\u02c8f\u025bm\u0259r\u0259l/');
     expect(list[0].queryCount).toBe(1);
     expect(list[0].book).toBe('book.pdf');
+    expect(list[0].sentenceContext).toEqual(['It was an ephemeral moment of joy.']);
   });
 
-  test('querying the same word again increments queryCount', () => {
+  test('querying the same word again increments queryCount and updates defs', () => {
     setReaderState(win, { fileName: 'book.pdf' });
 
-    win.recordWord({ word: 'ubiquitous', englishDef: 'def1', chineseDef: 'cn1', pronunciation: 'p1' });
-    win.recordWord({ word: 'ubiquitous', englishDef: 'def2', chineseDef: 'cn2', pronunciation: 'p2' });
+    win.recordWord({ word: 'ubiquitous', englishDef: 'def1', chineseDef: 'cn1', pronunciation: 'p1', sentenceContext: 'ctx1' });
+    win.recordWord({ word: 'ubiquitous', englishDef: 'def2', chineseDef: 'cn2', pronunciation: 'p2', sentenceContext: 'ctx2' });
 
     const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
     const matches = list.filter(w => w.word === 'ubiquitous' && w.book === 'book.pdf');
     expect(matches.length).toBe(1);
     expect(matches[0].queryCount).toBe(2);
-    // Definitions should update to latest
     expect(matches[0].englishDef).toBe('def2');
     expect(matches[0].chineseDef).toBe('cn2');
     expect(matches[0].pronunciation).toBe('p2');
@@ -113,21 +118,20 @@ describe('word list — recording words', () => {
 
   test('same word in different books creates separate entries', () => {
     setReaderState(win, { fileName: 'book-a.pdf' });
-    win.recordWord({ word: 'novel', englishDef: 'def-a', chineseDef: 'cn-a', pronunciation: 'p-a' });
+    win.recordWord({ word: 'novel', englishDef: 'def-a', chineseDef: 'cn-a', pronunciation: 'p-a', sentenceContext: 's-a' });
 
     setReaderState(win, { fileName: 'book-b.pdf' });
-    win.recordWord({ word: 'novel', englishDef: 'def-b', chineseDef: 'cn-b', pronunciation: 'p-b' });
+    win.recordWord({ word: 'novel', englishDef: 'def-b', chineseDef: 'cn-b', pronunciation: 'p-b', sentenceContext: 's-b' });
 
     const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
     expect(list.length).toBe(2);
-    expect(list.filter(w => w.word === 'novel').length).toBe(2);
   });
 
   test('word matching is case-insensitive', () => {
     setReaderState(win, { fileName: 'book.pdf' });
 
-    win.recordWord({ word: 'Apple', englishDef: 'def1', chineseDef: 'cn1', pronunciation: 'p1' });
-    win.recordWord({ word: 'apple', englishDef: 'def2', chineseDef: 'cn2', pronunciation: 'p2' });
+    win.recordWord({ word: 'Apple', englishDef: 'def1', chineseDef: 'cn1', pronunciation: 'p1', sentenceContext: 's1' });
+    win.recordWord({ word: 'apple', englishDef: 'def2', chineseDef: 'cn2', pronunciation: 'p2', sentenceContext: 's2' });
 
     const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
     const apples = list.filter(w => w.word.toLowerCase() === 'apple' && w.book === 'book.pdf');
@@ -135,9 +139,9 @@ describe('word list — recording words', () => {
     expect(apples[0].queryCount).toBe(2);
   });
 
-  test('records date of last query', () => {
+  test('records ISO date of last query', () => {
     setReaderState(win, { fileName: 'book.pdf' });
-    win.recordWord({ word: 'test', englishDef: 'e', chineseDef: 'c', pronunciation: 'p' });
+    win.recordWord({ word: 'test', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: 's' });
 
     const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
     expect(list[0].lastQueried).toBeDefined();
@@ -145,6 +149,54 @@ describe('word list — recording words', () => {
   });
 });
 
+// ============================================================
+// Sentence context accumulation
+// ============================================================
+describe('word list — sentence context', () => {
+
+  test('sentenceContext is stored as an array', () => {
+    setReaderState(win, { fileName: 'book.pdf' });
+    win.recordWord({ word: 'run', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: 'I run every morning.' });
+
+    const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
+    expect(Array.isArray(list[0].sentenceContext)).toBe(true);
+    expect(list[0].sentenceContext).toEqual(['I run every morning.']);
+  });
+
+  test('querying same word with a different sentence appends it', () => {
+    setReaderState(win, { fileName: 'book.pdf' });
+    win.recordWord({ word: 'run', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: 'I run every morning.' });
+    win.recordWord({ word: 'run', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: 'He had to run the company.' });
+
+    const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
+    expect(list[0].sentenceContext).toEqual([
+      'I run every morning.',
+      'He had to run the company.',
+    ]);
+  });
+
+  test('duplicate sentences are not appended again', () => {
+    setReaderState(win, { fileName: 'book.pdf' });
+    win.recordWord({ word: 'run', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: 'Same sentence.' });
+    win.recordWord({ word: 'run', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: 'Same sentence.' });
+
+    const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
+    expect(list[0].sentenceContext).toEqual(['Same sentence.']);
+    expect(list[0].queryCount).toBe(2);
+  });
+
+  test('empty sentenceContext string is not stored', () => {
+    setReaderState(win, { fileName: 'book.pdf' });
+    win.recordWord({ word: 'run', englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: '' });
+
+    const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
+    expect(list[0].sentenceContext).toEqual([]);
+  });
+});
+
+// ============================================================
+// Sidebar panel UI
+// ============================================================
 describe('word list — sidebar panel UI', () => {
 
   test('word list panel and toggle exist in the DOM', () => {
@@ -153,39 +205,33 @@ describe('word list — sidebar panel UI', () => {
   });
 
   test('toggle button is visible in reading mode', () => {
-    const toggle = doc.getElementById('wordListToggle');
-    expect(toggle.classList.contains('visible')).toBe(true);
+    expect(doc.getElementById('wordListToggle').classList.contains('visible')).toBe(true);
   });
 
   test('clicking toggle opens the word list panel', () => {
     const toggle = doc.getElementById('wordListToggle');
     const panel = doc.getElementById('wordListPanel');
-    expect(panel.classList.contains('active')).toBe(false);
-
     toggle.click();
     expect(panel.classList.contains('active')).toBe(true);
   });
 
   test('clicking close button closes the panel', () => {
-    const toggle = doc.getElementById('wordListToggle');
-    const panel = doc.getElementById('wordListPanel');
-    const closeBtn = doc.getElementById('wordListClose');
-
-    toggle.click();
-    expect(panel.classList.contains('active')).toBe(true);
-
-    closeBtn.click();
-    expect(panel.classList.contains('active')).toBe(false);
+    doc.getElementById('wordListToggle').click();
+    doc.getElementById('wordListClose').click();
+    expect(doc.getElementById('wordListPanel').classList.contains('active')).toBe(false);
   });
 });
 
+// ============================================================
+// Rendering
+// ============================================================
 describe('word list — rendering', () => {
 
   test('renderWordList() shows only words for the current book', () => {
     const words = [
-      { word: 'alpha', queryCount: 2, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'book-a.pdf', lastQueried: new Date().toISOString() },
-      { word: 'beta', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'book-b.pdf', lastQueried: new Date().toISOString() },
-      { word: 'gamma', queryCount: 3, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'book-a.pdf', lastQueried: new Date().toISOString() },
+      { word: 'alpha', queryCount: 2, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: ['s'], book: 'book-a.pdf', lastQueried: new Date().toISOString() },
+      { word: 'beta', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: ['s'], book: 'book-b.pdf', lastQueried: new Date().toISOString() },
+      { word: 'gamma', queryCount: 3, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: ['s'], book: 'book-a.pdf', lastQueried: new Date().toISOString() },
     ];
     win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
     setReaderState(win, { fileName: 'book-a.pdf' });
@@ -198,9 +244,9 @@ describe('word list — rendering', () => {
 
   test('words are sorted by queryCount descending', () => {
     const words = [
-      { word: 'rare', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'test.pdf', lastQueried: new Date().toISOString() },
-      { word: 'common', queryCount: 5, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'test.pdf', lastQueried: new Date().toISOString() },
-      { word: 'medium', queryCount: 3, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'test.pdf', lastQueried: new Date().toISOString() },
+      { word: 'rare', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'test.pdf', lastQueried: new Date().toISOString() },
+      { word: 'common', queryCount: 5, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'test.pdf', lastQueried: new Date().toISOString() },
+      { word: 'medium', queryCount: 3, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'test.pdf', lastQueried: new Date().toISOString() },
     ];
     win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
     setReaderState(win, { fileName: 'test.pdf' });
@@ -215,7 +261,7 @@ describe('word list — rendering', () => {
 
   test('each item shows word, pronunciation, query count, and Chinese definition', () => {
     const words = [
-      { word: 'serendipity', queryCount: 4, englishDef: '(n.) happy accident', chineseDef: '\u610f\u5916\u53d1\u73b0', pronunciation: '/\u02ccser.\u0259n\u02c8d\u026ap.\u0259.ti/', book: 'test.pdf', lastQueried: new Date().toISOString() },
+      { word: 'serendipity', queryCount: 4, englishDef: '(n.) happy accident', chineseDef: '\u610f\u5916\u53d1\u73b0', pronunciation: '/\u02ccser.\u0259n\u02c8d\u026ap.\u0259.ti/', sentenceContext: ['A moment of serendipity.'], book: 'test.pdf', lastQueried: new Date().toISOString() },
     ];
     win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
     setReaderState(win, { fileName: 'test.pdf' });
@@ -229,21 +275,51 @@ describe('word list — rendering', () => {
     expect(item.textContent).toContain('\u610f\u5916\u53d1\u73b0');
   });
 
+  test('each item shows the sentence context', () => {
+    const words = [
+      { word: 'lucid', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: ['She gave a lucid explanation.', 'A lucid dream.'], book: 'test.pdf', lastQueried: new Date().toISOString() },
+    ];
+    win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
+    setReaderState(win, { fileName: 'test.pdf' });
+
+    win.renderWordList();
+
+    const item = doc.getElementById('wordListEntries').querySelector('.wordlist-item');
+    expect(item.textContent).toContain('She gave a lucid explanation.');
+    expect(item.textContent).toContain('A lucid dream.');
+  });
+
+  test('each item shows the query time', () => {
+    const words = [
+      { word: 'lucid', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'test.pdf', lastQueried: '2026-03-10T14:30:00.000Z' },
+    ];
+    win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
+    setReaderState(win, { fileName: 'test.pdf' });
+
+    win.renderWordList();
+
+    const item = doc.getElementById('wordListEntries').querySelector('.wordlist-item');
+    const timeEl = item.querySelector('.wordlist-time');
+    expect(timeEl).toBeTruthy();
+    expect(timeEl.textContent.length).toBeGreaterThan(0);
+  });
+
   test('shows empty state when no words for current book', () => {
     setReaderState(win, { fileName: 'empty.pdf' });
     win.renderWordList();
-
-    const entries = doc.getElementById('wordListEntries');
-    expect(entries.textContent).toContain('No words');
+    expect(doc.getElementById('wordListEntries').textContent).toContain('No words');
   });
 });
 
+// ============================================================
+// Delete
+// ============================================================
 describe('word list — delete', () => {
 
   test('deleteWordFromList() removes a specific word entry', () => {
     const words = [
-      { word: 'keep', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'test.pdf', lastQueried: new Date().toISOString() },
-      { word: 'remove', queryCount: 2, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'test.pdf', lastQueried: new Date().toISOString() },
+      { word: 'keep', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'test.pdf', lastQueried: new Date().toISOString() },
+      { word: 'remove', queryCount: 2, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'test.pdf', lastQueried: new Date().toISOString() },
     ];
     win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
     setReaderState(win, { fileName: 'test.pdf' });
@@ -257,8 +333,8 @@ describe('word list — delete', () => {
 
   test('delete only removes the entry for the matching book', () => {
     const words = [
-      { word: 'shared', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'book-a.pdf', lastQueried: new Date().toISOString() },
-      { word: 'shared', queryCount: 3, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', book: 'book-b.pdf', lastQueried: new Date().toISOString() },
+      { word: 'shared', queryCount: 1, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'book-a.pdf', lastQueried: new Date().toISOString() },
+      { word: 'shared', queryCount: 3, englishDef: 'e', chineseDef: 'c', pronunciation: 'p', sentenceContext: [], book: 'book-b.pdf', lastQueried: new Date().toISOString() },
     ];
     win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
 
@@ -270,34 +346,27 @@ describe('word list — delete', () => {
   });
 });
 
+// ============================================================
+// Export
+// ============================================================
 describe('word list — export', () => {
 
-  test('exportWordList() generates markdown content with all fields', () => {
+  test('exportWordList() generates markdown with all fields including context and time', () => {
     const words = [
-      { word: 'ephemeral', queryCount: 3, englishDef: '(adj.) lasting a very short time', chineseDef: '\u77ed\u6682\u7684', pronunciation: '/\u026a\u02c8f\u025bm\u0259r\u0259l/', book: 'mybook.pdf', lastQueried: '2026-03-10T14:30:00.000Z' },
-      { word: 'ubiquitous', queryCount: 1, englishDef: '(adj.) present everywhere', chineseDef: '\u65e0\u5904\u4e0d\u5728\u7684', pronunciation: '/ju\u02d0\u02c8b\u026ak.w\u026a.t\u0259s/', book: 'mybook.pdf', lastQueried: '2026-03-10T15:00:00.000Z' },
+      { word: 'ephemeral', queryCount: 3, englishDef: '(adj.) lasting a very short time', chineseDef: '\u77ed\u6682\u7684', pronunciation: '/\u026a\u02c8f\u025bm\u0259r\u0259l/', sentenceContext: ['An ephemeral beauty.', 'Ephemeral trends fade.'], book: 'mybook.pdf', lastQueried: '2026-03-10T14:30:00.000Z' },
+      { word: 'ubiquitous', queryCount: 1, englishDef: '(adj.) present everywhere', chineseDef: '\u65e0\u5904\u4e0d\u5728\u7684', pronunciation: '/ju\u02d0\u02c8b\u026ak.w\u026a.t\u0259s/', sentenceContext: ['Smartphones are ubiquitous.'], book: 'mybook.pdf', lastQueried: '2026-03-10T15:00:00.000Z' },
     ];
     win.localStorage.setItem('reader-wordlist', JSON.stringify(words));
     setReaderState(win, { fileName: 'mybook.pdf' });
 
-    // Capture the blob content by stubbing URL.createObjectURL and <a>.click
     let capturedBlob = null;
     win.URL.createObjectURL = (blob) => { capturedBlob = blob; return 'blob:fake'; };
     win.URL.revokeObjectURL = () => {};
 
-    // Stub the click on the anchor
     const origCreateElement = doc.createElement.bind(doc);
-    let downloadName = '';
     doc.createElement = (tag) => {
       const el = origCreateElement(tag);
-      if (tag === 'a') {
-        el.click = () => {};
-        const origSet = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'download') || {};
-        Object.defineProperty(el, 'download', {
-          set(v) { downloadName = v; },
-          get() { return downloadName; },
-        });
-      }
+      if (tag === 'a') { el.click = () => {}; }
       return el;
     };
 
@@ -305,39 +374,39 @@ describe('word list — export', () => {
 
     expect(capturedBlob).toBeTruthy();
 
-    // Read blob content synchronously via arrayBuffer
     return capturedBlob.text().then((text) => {
       expect(text).toContain('# Word List: mybook.pdf');
+      // ephemeral section
       expect(text).toContain('ephemeral');
       expect(text).toContain('/\u026a\u02c8f\u025bm\u0259r\u0259l/');
       expect(text).toContain('\u77ed\u6682\u7684');
-      expect(text).toContain('3'); // queryCount
-      expect(text).toContain('ubiquitous');
-      // Sorted by queryCount desc in export too
-      const ephIdx = text.indexOf('ephemeral');
-      const ubiIdx = text.indexOf('ubiquitous');
-      expect(ephIdx).toBeLessThan(ubiIdx);
+      expect(text).toContain('3');
+      // sentence contexts in export
+      expect(text).toContain('An ephemeral beauty.');
+      expect(text).toContain('Ephemeral trends fade.');
+      expect(text).toContain('Smartphones are ubiquitous.');
+      // sorted by queryCount desc
+      expect(text.indexOf('ephemeral')).toBeLessThan(text.indexOf('ubiquitous'));
     });
   });
 
   test('exportWordList() does nothing when word list is empty', () => {
     setReaderState(win, { fileName: 'empty.pdf' });
-
     let blobCreated = false;
     win.URL.createObjectURL = () => { blobCreated = true; return 'blob:fake'; };
-
     win.exportWordList();
-
     expect(blobCreated).toBe(false);
   });
 });
 
+// ============================================================
+// Integration with lookupWord
+// ============================================================
 describe('word list — integration with lookupWord', () => {
 
-  test('lookupWord records the word after receiving API result', async () => {
+  test('lookupWord records word with sentence context after API result', async () => {
     setReaderState(win, { fileName: 'test.pdf', apiKey: 'test-key' });
 
-    // Stub callOpenAI to return a formatted result with pronunciation
     win._stubCallOpenAI = async () => 'EN: (adj.) lasting a very short time\nCN: \u77ed\u6682\u7684\nPRON: /\u026a\u02c8f\u025bm\u0259r\u0259l/';
 
     await win.lookupWord('ephemeral', 'It was an ephemeral moment.');
@@ -349,18 +418,19 @@ describe('word list — integration with lookupWord', () => {
     expect(list[0].chineseDef).toBe('\u77ed\u6682\u7684');
     expect(list[0].pronunciation).toBe('/\u026a\u02c8f\u025bm\u0259r\u0259l/');
     expect(list[0].queryCount).toBe(1);
+    expect(list[0].sentenceContext).toEqual(['It was an ephemeral moment.']);
   });
 
-  test('lookupWord increments count when querying same word again', async () => {
+  test('lookupWord increments count and appends new context', async () => {
     setReaderState(win, { fileName: 'test.pdf', apiKey: 'test-key' });
 
     win._stubCallOpenAI = async () => 'EN: (adj.) short-lived\nCN: \u77ed\u6682\u7684\nPRON: /\u026a\u02c8f\u025bm\u0259r\u0259l/';
 
-    await win.lookupWord('ephemeral', 'context 1');
-    await win.lookupWord('ephemeral', 'context 2');
+    await win.lookupWord('ephemeral', 'Context sentence one.');
+    await win.lookupWord('ephemeral', 'Context sentence two.');
 
     const list = JSON.parse(win.localStorage.getItem('reader-wordlist'));
-    expect(list.filter(w => w.word === 'ephemeral').length).toBe(1);
     expect(list[0].queryCount).toBe(2);
+    expect(list[0].sentenceContext).toEqual(['Context sentence one.', 'Context sentence two.']);
   });
 });

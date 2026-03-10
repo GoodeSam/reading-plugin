@@ -1039,6 +1039,7 @@ PRON: [IPA pronunciation]`
       englishDef: enMatch ? enMatch[1].trim() : '',
       chineseDef: cnMatch ? cnMatch[1].trim() : '',
       pronunciation: pronMatch ? pronMatch[1].trim() : '',
+      sentenceContext,
     });
   }
 }
@@ -1383,7 +1384,7 @@ function saveWordList(list) {
   localStorage.setItem('reader-wordlist', JSON.stringify(list));
 }
 
-function recordWord({ word, englishDef, chineseDef, pronunciation }) {
+function recordWord({ word, englishDef, chineseDef, pronunciation, sentenceContext }) {
   let list = loadWordList();
   const lowerWord = word.toLowerCase();
   const book = state.fileName;
@@ -1395,6 +1396,10 @@ function recordWord({ word, englishDef, chineseDef, pronunciation }) {
     existing.chineseDef = chineseDef;
     existing.pronunciation = pronunciation;
     existing.lastQueried = new Date().toISOString();
+    // Append sentence context if new and non-empty
+    if (sentenceContext && !existing.sentenceContext.includes(sentenceContext)) {
+      existing.sentenceContext.push(sentenceContext);
+    }
   } else {
     list.push({
       word,
@@ -1402,6 +1407,7 @@ function recordWord({ word, englishDef, chineseDef, pronunciation }) {
       englishDef,
       chineseDef,
       pronunciation,
+      sentenceContext: sentenceContext ? [sentenceContext] : [],
       book,
       lastQueried: new Date().toISOString(),
     });
@@ -1427,12 +1433,23 @@ function renderWordList() {
   for (const entry of bookWords) {
     const el = document.createElement('div');
     el.className = 'wordlist-item';
+
+    const d = new Date(entry.lastQueried);
+    const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const contexts = (entry.sentenceContext || []);
+    const contextHtml = contexts.length > 0
+      ? `<div class="wordlist-contexts">${contexts.map(s => `<div class="wordlist-ctx">${escapeHtml(s)}</div>`).join('')}</div>`
+      : '';
+
     el.innerHTML =
       `<div><span class="wordlist-word">${escapeHtml(entry.word)}</span>` +
       `<span class="wordlist-pron">${escapeHtml(entry.pronunciation)}</span>` +
       `<span class="wordlist-count">&times;${entry.queryCount}</span></div>` +
       `<div class="wordlist-cn">${escapeHtml(entry.chineseDef)}</div>` +
       `<div class="wordlist-en">${escapeHtml(entry.englishDef)}</div>` +
+      contextHtml +
+      `<div class="wordlist-time">${timeStr}</div>` +
       `<button class="wordlist-delete" data-word="${escapeHtml(entry.word)}" data-book="${escapeHtml(entry.book)}">&times;</button>`;
     wordListEntries.appendChild(el);
   }
@@ -1467,7 +1484,14 @@ function exportWordList() {
   for (const w of bookWords) {
     lines.push(`- **${w.word}** ${w.pronunciation} (\u00d7${w.queryCount})`);
     lines.push(`  ${w.englishDef}`);
-    lines.push(`  ${w.chineseDef}\n`);
+    lines.push(`  ${w.chineseDef}`);
+    const contexts = w.sentenceContext || [];
+    if (contexts.length > 0) {
+      for (const ctx of contexts) {
+        lines.push(`  > ${ctx}`);
+      }
+    }
+    lines.push('');
   }
 
   const content = lines.join('\n');
