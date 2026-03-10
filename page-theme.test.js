@@ -273,3 +273,80 @@ describe('theme state', () => {
     expect(win._readerState.theme).toBe('green');
   });
 });
+
+// ============================================================
+// Paragraph background adapts to theme
+// ============================================================
+describe('paragraph background adapts to theme', () => {
+
+  test('white theme: paragraphs get white-appropriate background', () => {
+    doc.querySelector('[data-theme="white"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.background).toBe('rgb(245, 245, 245)');
+  });
+
+  test('black theme: paragraphs get dark background', () => {
+    doc.querySelector('[data-theme="black"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.background).toBe('rgb(35, 35, 35)');
+  });
+
+  test('brown theme: paragraphs get sepia background', () => {
+    doc.querySelector('[data-theme="brown"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.background).toBe('rgb(250, 248, 244)');
+  });
+
+  test('green theme: paragraphs get light green background', () => {
+    doc.querySelector('[data-theme="green"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.background).toBe('rgb(214, 237, 216)');
+  });
+
+  test('black theme: paragraph border-left adapts', () => {
+    doc.querySelector('[data-theme="black"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.borderLeftColor).toBe('rgb(68, 68, 68)');
+  });
+
+  test('white theme: paragraph border-left adapts', () => {
+    doc.querySelector('[data-theme="white"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.borderLeftColor).toBe('rgb(214, 214, 214)');
+  });
+
+  test('paragraphs update when switching themes', () => {
+    doc.querySelector('[data-theme="black"]').click();
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.background).toBe('rgb(35, 35, 35)');
+
+    doc.querySelector('[data-theme="white"]').click();
+    expect(para.style.background).toBe('rgb(245, 245, 245)');
+  });
+
+  test('top bar background adapts to black theme', () => {
+    doc.querySelector('[data-theme="black"]').click();
+    const topBar = doc.querySelector('.top-bar');
+    expect(topBar.style.background).toBe('rgb(30, 30, 30)');
+  });
+
+  test('bottom bar background adapts to black theme', () => {
+    doc.querySelector('[data-theme="black"]').click();
+    const bottomBar = doc.querySelector('.bottom-bar');
+    expect(bottomBar.style.background).toBe('rgb(30, 30, 30)');
+  });
+
+  test('top bar background adapts to white theme', () => {
+    doc.querySelector('[data-theme="white"]').click();
+    const topBar = doc.querySelector('.top-bar');
+    expect(topBar.style.background).toBe('rgb(255, 255, 255)');
+  });
+
+  test('newly rendered pages pick up the current theme', () => {
+    doc.querySelector('[data-theme="black"]').click();
+    // Re-render
+    win.goToPage(0);
+    const para = doc.querySelector('.paragraph');
+    expect(para.style.background).toBe('rgb(35, 35, 35)');
+  });
+});

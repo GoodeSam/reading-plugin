@@ -154,10 +154,10 @@ function changeContentWidth(delta) {
 
 // ===== Page Theme =====
 const THEMES = {
-  white:  { bg: '#ffffff', text: '#2d2a24' },
-  black:  { bg: '#1a1a1a', text: '#d4d4d4' },
-  brown:  { bg: '#f5f0e8', text: '#2d2a24' },
-  green:  { bg: '#e8f5e9', text: '#1b3a1b' },
+  white:  { bg: '#ffffff', text: '#2d2a24', paraBg: '#f5f5f5', paraBorder: '#d6d6d6', barBg: '#ffffff' },
+  black:  { bg: '#1a1a1a', text: '#d4d4d4', paraBg: '#232323', paraBorder: '#444444', barBg: '#1e1e1e' },
+  brown:  { bg: '#f5f0e8', text: '#2d2a24', paraBg: '#faf8f4', paraBorder: '#d6cdbf', barBg: '#ffffff' },
+  green:  { bg: '#e8f5e9', text: '#1b3a1b', paraBg: '#d6edd8', paraBorder: '#a3d1a7', barBg: '#dff0e0' },
 };
 
 function loadTheme() {
@@ -168,10 +168,23 @@ function loadTheme() {
 
 function applyTheme(theme) {
   if (!THEMES[theme]) theme = 'brown';
+  const t = THEMES[theme];
   state.theme = theme;
   readerScreen.dataset.theme = theme;
-  readerScreen.style.backgroundColor = THEMES[theme].bg;
-  readerScreen.style.color = THEMES[theme].text;
+  readerScreen.style.backgroundColor = t.bg;
+  readerScreen.style.color = t.text;
+
+  // Update paragraphs
+  document.querySelectorAll('.paragraph').forEach(p => {
+    p.style.background = t.paraBg;
+    p.style.borderLeftColor = t.paraBorder;
+  });
+
+  // Update bars
+  const topBar = document.querySelector('.top-bar');
+  const bottomBar = document.querySelector('.bottom-bar');
+  if (topBar) topBar.style.background = t.barBg;
+  if (bottomBar) bottomBar.style.background = t.barBg;
 
   // Update swatch active state
   const swatches = document.querySelectorAll('#themePicker .theme-swatch');
@@ -827,6 +840,15 @@ function renderPage() {
     }
 
     readerContent.appendChild(pEl);
+  }
+
+  // Re-apply theme to new paragraphs
+  if (state.theme && THEMES[state.theme]) {
+    const t = THEMES[state.theme];
+    document.querySelectorAll('.paragraph').forEach(p => {
+      p.style.background = t.paraBg;
+      p.style.borderLeftColor = t.paraBorder;
+    });
   }
 
   // Re-apply search highlights if search is active
