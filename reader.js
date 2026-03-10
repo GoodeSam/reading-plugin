@@ -230,6 +230,7 @@ function bindEvents() {
     uploadScreen.classList.add('active');
     notesToggle.classList.remove('visible');
     historyToggle.classList.remove('visible');
+    wordListToggle.classList.remove('visible');
   });
   prevPageBtn.addEventListener('click', () => goToPage(state.currentPage - 1));
   nextPageBtn.addEventListener('click', () => goToPage(state.currentPage + 1));
@@ -458,6 +459,7 @@ async function handleFile(file) {
     readerScreen.classList.add('active');
     notesToggle.classList.add('visible');
     historyToggle.classList.add('visible');
+    wordListToggle.classList.add('visible');
 
     updateBookmarkIcon();
 
@@ -952,16 +954,19 @@ function closeWordPopup() {
 }
 
 async function lookupWord(word, sentenceContext) {
-  const result = await callOpenAI([
+  const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
+  const result = await apiCall([
     {
       role: 'system',
       content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
 1. The word's part of speech and English definition as used in this context (1-2 concise lines).
 2. The Chinese definition (1 line).
+3. The IPA pronunciation (1 line).
 
 Format your response exactly as:
 EN: [part of speech] [English definition]
-CN: [Chinese definition]`
+CN: [Chinese definition]
+PRON: [IPA pronunciation]`
     },
     { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
   ], (errMsg) => {
@@ -973,6 +978,7 @@ CN: [Chinese definition]`
   if (result) {
     const enMatch = result.match(/EN:\s*(.+)/);
     const cnMatch = result.match(/CN:\s*(.+)/);
+    const pronMatch = result.match(/PRON:\s*(.+)/);
 
     if (enMatch) {
       defEnText.textContent = enMatch[1].trim();
@@ -982,8 +988,17 @@ CN: [Chinese definition]`
       defCnText.textContent = cnMatch[1].trim();
       defChineseSection.style.display = 'block';
     }
+
+    recordWord({
+      word,
+      englishDef: enMatch ? enMatch[1].trim() : '',
+      chineseDef: cnMatch ? cnMatch[1].trim() : '',
+      pronunciation: pronMatch ? pronMatch[1].trim() : '',
+    });
   }
 }
+
+window.lookupWord = lookupWord;
 
 // ===== Full-Text Search =====
 function openSearch() {
@@ -1307,6 +1322,131 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ===== Word List =====
+const wordListToggle = $('#wordListToggle');
+const wordListPanel = $('#wordListPanel');
+const wordListClose = $('#wordListClose');
+const wordListEntries = $('#wordListEntries');
+const wordListExport = $('#wordListExport');
+
+function loadWordList() {
+  const raw = localStorage.getItem('reader-wordlist');
+  return raw ? JSON.parse(raw) : [];
+}
+
+function saveWordList(list) {
+  localStorage.setItem('reader-wordlist', JSON.stringify(list));
+}
+
+function recordWord({ word, englishDef, chineseDef, pronunciation }) {
+  let list = loadWordList();
+  const lowerWord = word.toLowerCase();
+  const book = state.fileName;
+
+  const existing = list.find(w => w.word.toLowerCase() === lowerWord && w.book === book);
+  if (existing) {
+    existing.queryCount += 1;
+    existing.englishDef = englishDef;
+    existing.chineseDef = chineseDef;
+    existing.pronunciation = pronunciation;
+    existing.lastQueried = new Date().toISOString();
+  } else {
+    list.push({
+      word,
+      queryCount: 1,
+      englishDef,
+      chineseDef,
+      pronunciation,
+      book,
+      lastQueried: new Date().toISOString(),
+    });
+  }
+
+  saveWordList(list);
+}
+
+window.recordWord = recordWord;
+
+function renderWordList() {
+  wordListEntries.innerHTML = '';
+  const list = loadWordList();
+  const bookWords = list
+    .filter(w => w.book === state.fileName)
+    .sort((a, b) => b.queryCount - a.queryCount);
+
+  if (bookWords.length === 0) {
+    wordListEntries.innerHTML = '<p style="color:#999; font-size:13px; text-align:center; padding:20px; font-family:sans-serif;">No words queried yet.</p>';
+    return;
+  }
+
+  for (const entry of bookWords) {
+    const el = document.createElement('div');
+    el.className = 'wordlist-item';
+    el.innerHTML =
+      `<div><span class="wordlist-word">${escapeHtml(entry.word)}</span>` +
+      `<span class="wordlist-pron">${escapeHtml(entry.pronunciation)}</span>` +
+      `<span class="wordlist-count">&times;${entry.queryCount}</span></div>` +
+      `<div class="wordlist-cn">${escapeHtml(entry.chineseDef)}</div>` +
+      `<div class="wordlist-en">${escapeHtml(entry.englishDef)}</div>` +
+      `<button class="wordlist-delete" data-word="${escapeHtml(entry.word)}" data-book="${escapeHtml(entry.book)}">&times;</button>`;
+    wordListEntries.appendChild(el);
+  }
+
+  wordListEntries.querySelectorAll('.wordlist-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      deleteWordFromList(btn.dataset.word, btn.dataset.book);
+    });
+  });
+}
+
+window.renderWordList = renderWordList;
+
+function deleteWordFromList(word, book) {
+  let list = loadWordList();
+  list = list.filter(w => !(w.word.toLowerCase() === word.toLowerCase() && w.book === book));
+  saveWordList(list);
+  renderWordList();
+}
+
+window.deleteWordFromList = deleteWordFromList;
+
+function exportWordList() {
+  const list = loadWordList();
+  const bookWords = list
+    .filter(w => w.book === state.fileName)
+    .sort((a, b) => b.queryCount - a.queryCount);
+
+  if (bookWords.length === 0) return;
+
+  const lines = [`# Word List: ${state.fileName}\n`];
+  for (const w of bookWords) {
+    lines.push(`- **${w.word}** ${w.pronunciation} (\u00d7${w.queryCount})`);
+    lines.push(`  ${w.englishDef}`);
+    lines.push(`  ${w.chineseDef}\n`);
+  }
+
+  const content = lines.join('\n');
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `wordlist-${state.fileName.replace(/\.[^.]+$/, '')}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+window.exportWordList = exportWordList;
+
+// Word list panel toggle/close
+wordListToggle.addEventListener('click', () => {
+  wordListPanel.classList.toggle('active');
+  renderWordList();
+});
+wordListClose.addEventListener('click', () => {
+  wordListPanel.classList.remove('active');
+});
+wordListExport.addEventListener('click', exportWordList);
+
 // ===== Reading History =====
 const MAX_HISTORY_ENTRIES = 50;
 
@@ -1479,5 +1619,6 @@ document.addEventListener('DOMContentLoaded', () => {
     startAutoHideTimer();
     historyToggle.classList.add('visible');
     notesToggle.classList.add('visible');
+    wordListToggle.classList.add('visible');
   }
 });
