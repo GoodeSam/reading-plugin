@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>English Reader</title>
+  <link rel="stylesheet" href="reader.css">
+  <!-- PDF.js -->
+  <script src="lib/pdf.min.js"></script>
+  <!-- EPUB.js -->
+  <script src="lib/jszip.min.js"></script>
+  <script src="lib/epub.min.js"></script>
+</head>
+<body>
+  <!-- Upload Screen -->
+  <div id="uploadScreen" class="screen active">
+    <div class="upload-area" id="dropZone">
+      <div class="upload-icon">&#128214;</div>
+      <h2>English Reader</h2>
+      <p>Drop a PDF or EPUB file here, or click to browse</p>
+      <input type="file" id="fileInput" accept=".pdf,.epub" hidden>
+      <button class="btn btn-primary" id="browseBtn">Browse Files</button>
+    </div>
+  </div>
+
+  <!-- Reader Screen -->
+  <div id="readerScreen" class="screen">
+    <!-- Top Bar -->
+    <div class="top-bar">
+      <button class="icon-btn" id="backBtn" title="Back to upload">&#8592;</button>
+      <span class="book-title" id="bookTitle">Untitled</span>
+      <div class="top-bar-actions">
+        <button class="icon-btn" id="searchToggle" title="Search (Ctrl+F)">&#128269;</button>
+        <button class="icon-btn bookmark-btn" id="bookmarkBtn" title="Bookmark this position">&#9734;</button>
+        <div class="font-size-control">
+          <button class="icon-btn" id="fontDecrease" title="Decrease font size">A-</button>
+          <span class="font-size-label" id="fontSizeLabel">18</span>
+          <button class="icon-btn" id="fontIncrease" title="Increase font size">A+</button>
+        </div>
+        <div class="width-control">
+          <button class="icon-btn" id="widthDecrease" title="Narrower">&#8612;</button>
+          <span class="width-label" id="widthLabel">800</span>
+          <button class="icon-btn" id="widthIncrease" title="Wider">&#8614;</button>
+        </div>
+        <span class="page-info" id="pageInfo">Page 1</span>
+      </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="search-bar" id="searchBar">
+      <input type="text" id="searchInput" placeholder="Search in book..." autocomplete="off">
+      <span class="search-count" id="searchCount"></span>
+      <button class="icon-btn search-nav-btn" id="searchPrev" title="Previous match">&#8593;</button>
+      <button class="icon-btn search-nav-btn" id="searchNext" title="Next match">&#8595;</button>
+      <button class="icon-btn" id="searchClose" title="Close search">&times;</button>
+    </div>
+
+    <!-- Main Content -->
+    <div class="reader-content" id="readerContent">
+      <!-- Paragraphs with sentences will be injected here -->
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+      <button class="btn btn-nav" id="prevPage">&#8592; Previous</button>
+      <span class="page-indicator" id="pageIndicator">1 / 1</span>
+      <button class="btn btn-nav" id="nextPage">Next &#8594;</button>
+    </div>
+  </div>
+
+  <!-- Sentence Panel (slide-up) -->
+  <div class="panel-overlay" id="panelOverlay"></div>
+  <div class="sentence-panel" id="sentencePanel">
+    <div class="panel-header">
+      <span class="panel-title">Sentence</span>
+      <button class="icon-btn panel-close" id="panelClose">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-sentence" id="panelSentence"></div>
+      <div class="panel-actions">
+        <button class="btn btn-sm" id="btnTranslate">&#127760; Translate</button>
+        <button class="btn btn-sm" id="btnTTS">&#128264; Listen</button>
+        <button class="btn btn-sm" id="btnCopy">&#128203; Copy</button>
+      </div>
+      <div class="panel-result" id="panelTranslation" style="display:none">
+        <div class="result-label">Translation</div>
+        <div class="result-text" id="translationText"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Word Definition Popup -->
+  <div class="word-popup" id="wordPopup">
+    <div class="word-popup-header">
+      <span class="word-popup-word" id="popupWord"></span>
+      <button class="icon-btn word-popup-close" id="wordPopupClose">&times;</button>
+    </div>
+    <div class="word-popup-body">
+      <div class="def-loading" id="defLoading">Looking up definition...</div>
+      <div class="def-section" id="defEnglish" style="display:none">
+        <div class="def-label">English Definition</div>
+        <div class="def-text" id="defEnText"></div>
+      </div>
+      <div class="def-section def-chinese-section" id="defChineseSection" style="display:none">
+        <button class="btn btn-toggle-cn" id="toggleChinese">Show Chinese Definition</button>
+        <div class="def-text def-cn-text" id="defCnText" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Selection Toolbar -->
+  <div class="selection-toolbar" id="selectionToolbar">
+    <button class="btn btn-sm" id="selCopy">&#128203; Copy</button>
+    <button class="btn btn-sm" id="selNote">&#128221; Note</button>
+  </div>
+
+  <!-- Notes Panel -->
+  <div class="notes-panel" id="notesPanel">
+    <div class="notes-header">
+      <span>My Notes</span>
+      <button class="icon-btn" id="notesClose">&times;</button>
+    </div>
+    <div class="notes-list" id="notesList"></div>
+    <button class="btn btn-sm notes-export" id="notesExport">Export Notes</button>
+  </div>
+  <button class="notes-toggle" id="notesToggle" title="My Notes">&#128221;</button>
+
+  <script src="reader.js"></script>
+</body>
+</html>

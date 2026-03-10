@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c48" width="48" height="48"></canvas>
+<canvas id="c128" width="128" height="128"></canvas>
+<script>
+function drawIcon(canvas) {
+  const s = canvas.width;
+  const ctx = canvas.getContext('2d');
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, s, s);
+  grad.addColorStop(0, '#667eea');
+  grad.addColorStop(1, '#764ba2');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, s, s, s * 0.18);
+  ctx.fill();
+  // Book icon
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${s * 0.5}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('R', s/2, s/2 + s*0.02);
+}
+drawIcon(document.getElementById('c48'));
+drawIcon(document.getElementById('c128'));
+// Download
+['c48','c128'].forEach(id => {
+  const c = document.getElementById(id);
+  const a = document.createElement('a');
+  a.download = `icon${c.width}.png`;
+  a.href = c.toDataURL();
+  a.click();
+});
+</script>
+</body>
+</html>
