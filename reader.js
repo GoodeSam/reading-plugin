@@ -63,6 +63,13 @@ const defChineseSection = $('#defChineseSection');
 const toggleChinese = $('#toggleChinese');
 const defCnText = $('#defCnText');
 
+// Paragraph popup
+const paraPopup = $('#paraPopup');
+const paraPopupOverlay = $('#paraPopupOverlay');
+const paraPopupClose = $('#paraPopupClose');
+const paraPopupText = $('#paraPopupText');
+const paraPopupTranslation = $('#paraPopupTranslation');
+
 // Selection toolbar
 const selectionToolbar = $('#selectionToolbar');
 const selCopy = $('#selCopy');
@@ -418,6 +425,27 @@ function bindEvents() {
     if (sentenceEl) {
       e.preventDefault();
       openSentencePanel(sentenceEl);
+    }
+  });
+
+  // === Touchpad gesture handlers ===
+  readerContent.addEventListener('touchstart', (e) => {
+    const touchCount = e.touches.length;
+
+    if (touchCount === 2) {
+      // Two-finger tap → sentence translate + TTS
+      const sentenceEl = e.target.closest('.sentence');
+      if (!sentenceEl) return;
+      e.preventDefault();
+      openSentencePanel(sentenceEl);
+      window.translateSentence();
+      window.speakSentence();
+    } else if (touchCount === 3) {
+      // Three-finger tap → paragraph translation popup
+      const paraEl = e.target.closest('.paragraph');
+      if (!paraEl) return;
+      e.preventDefault();
+      openParaPopup(paraEl);
     }
   });
 }
@@ -842,6 +870,37 @@ function closeSentencePanel() {
   }
 }
 
+// ===== Paragraph Translation Popup =====
+function openParaPopup(paraEl) {
+  const text = paraEl.textContent.trim();
+  paraPopupText.textContent = text;
+  paraPopupTranslation.textContent = 'Translating...';
+  paraPopupOverlay.classList.add('active');
+  paraPopup.classList.add('active');
+
+  // Auto-trigger translation
+  const apiCall = window._stubCallOpenAI || ((msgs) => callOpenAI(msgs));
+  const promise = apiCall([
+    { role: 'system', content: 'You are a translator. Translate the following English text to Chinese. Only output the translation, nothing else.' },
+    { role: 'user', content: text }
+  ]);
+  if (promise && promise.then) {
+    promise.then((result) => {
+      if (result) {
+        paraPopupTranslation.textContent = result;
+      }
+    });
+  }
+}
+
+function closeParaPopup() {
+  paraPopupOverlay.classList.remove('active');
+  paraPopup.classList.remove('active');
+}
+
+paraPopupClose.addEventListener('click', closeParaPopup);
+paraPopupOverlay.addEventListener('click', closeParaPopup);
+
 // ===== API Calls =====
 async function callOpenAI(messages, onError) {
   if (!state.apiKey) {
@@ -964,6 +1023,9 @@ async function speakSentence() {
   btnTTS.textContent = '\ud83d\udd0a Listen';
   btnTTS.disabled = false;
 }
+
+window.translateSentence = translateSentence;
+window.speakSentence = speakSentence;
 
 // ===== Word Definition =====
 function showWordPopup(word, sentenceContext, event) {
