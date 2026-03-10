@@ -652,6 +652,86 @@ body {
   color: #4b5563;
 }
 
+/* ===== Feature Guide Overlay ===== */
+.feature-guide {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 2000;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 20px;
+  overflow-y: auto;
+}
+.feature-guide.active { display: flex; }
+.guide-inner {
+  background: #fff;
+  border-radius: 16px;
+  max-width: 700px;
+  width: 100%;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+}
+.guide-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  z-index: 1;
+}
+.guide-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1f2937;
+  font-family: -apple-system, sans-serif;
+}
+.guide-body { padding: 16px 24px 24px; }
+.guide-card {
+  display: flex;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.guide-card:last-child { border-bottom: none; }
+.guide-card-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  width: 36px;
+  text-align: center;
+}
+.guide-card-content { flex: 1; }
+.guide-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  font-family: -apple-system, sans-serif;
+  margin-bottom: 4px;
+}
+.guide-card-desc {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.5;
+  font-family: -apple-system, sans-serif;
+  margin-bottom: 4px;
+}
+.guide-card-usage {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+  font-family: -apple-system, sans-serif;
+  padding: 4px 8px;
+  background: #f9fafb;
+  border-radius: 4px;
+  border-left: 2px solid #4f46e5;
+}
+
 /* ===== Scrollbar ===== */
 .reader-content::-webkit-scrollbar { width: 6px; }
 .reader-content::-webkit-scrollbar-track { background: transparent; }

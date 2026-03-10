@@ -1752,6 +1752,140 @@ historyClose.addEventListener('click', () => {
 });
 historyClear.addEventListener('click', clearHistory);
 
+// ===== Feature Guide =====
+const FEATURE_REGISTRY = [
+  {
+    name: 'Word Lookup',
+    icon: '\ud83d\udcd6',
+    description: 'Click any word to see its English definition, Chinese meaning, and pronunciation.',
+    usage: 'Click a word in the text. A popup shows definitions. Click "Show Chinese Definition" for the Chinese meaning.'
+  },
+  {
+    name: 'Sentence Translation',
+    icon: '\ud83c\udf10',
+    description: 'Translate any sentence to Chinese with one click or a two-finger tap.',
+    usage: 'Right-click or two-finger tap a sentence. The sentence panel opens — click "Translate" or it auto-translates on gesture.'
+  },
+  {
+    name: 'Paragraph Translation',
+    icon: '\ud83d\udcc4',
+    description: 'Translate an entire paragraph at once with a three-finger tap.',
+    usage: 'Three-finger tap on any paragraph to open a popup showing the full paragraph and its Chinese translation.'
+  },
+  {
+    name: 'Text-to-Speech',
+    icon: '\ud83d\udd0a',
+    description: 'Listen to any sentence read aloud with natural pronunciation.',
+    usage: 'Open a sentence panel and click "Listen", or use a two-finger tap to auto-play pronunciation.'
+  },
+  {
+    name: 'Search',
+    icon: '\ud83d\udd0d',
+    description: 'Search for any word or phrase across the entire book.',
+    usage: 'Click the search icon in the top bar or press Ctrl+F. Type your query and use arrow buttons to navigate matches.'
+  },
+  {
+    name: 'Bookmarks',
+    icon: '\u2606',
+    description: 'Bookmark your current reading position for quick access later.',
+    usage: 'Click the star icon in the top bar to bookmark the current page. Click again to remove the bookmark.'
+  },
+  {
+    name: 'Notes',
+    icon: '\ud83d\udcdd',
+    description: 'Highlight text and save personal notes while reading.',
+    usage: 'Select text and click "Note" in the toolbar. View all notes by clicking the notes icon on the right side.'
+  },
+  {
+    name: 'Word List',
+    icon: 'Aa',
+    description: 'Automatically records every word you look up with query count, definitions, pronunciation, and sentence context.',
+    usage: 'Words are recorded automatically when you look them up. Click the "Aa" icon to view your word list. Export as Markdown.'
+  },
+  {
+    name: 'Reading History',
+    icon: '\ud83d\udd51',
+    description: 'Automatically saves your reading position so you can resume where you left off.',
+    usage: 'Click the clock icon to view your reading history. Click any entry to jump back to that position.'
+  },
+  {
+    name: 'Page Themes',
+    icon: '\ud83c\udfa8',
+    description: 'Choose from four background colors (white, dark, sepia, green) for comfortable reading.',
+    usage: 'Click a color swatch in the top bar to switch themes. Text and paragraph colors adjust automatically.'
+  },
+  {
+    name: 'Font Size',
+    icon: 'A',
+    description: 'Adjust the reading font size for comfort.',
+    usage: 'Click "A-" to decrease or "A+" to increase the font size in the top bar.'
+  },
+  {
+    name: 'Content Width',
+    icon: '\u2194',
+    description: 'Adjust the content column width to your preferred reading width.',
+    usage: 'Click the narrower/wider arrows in the top bar to adjust the content width.'
+  },
+  {
+    name: 'Page Navigation',
+    icon: '\ud83d\udcc3',
+    description: 'Navigate between pages or jump directly to a specific page number.',
+    usage: 'Use Previous/Next buttons, or click the page indicator at the bottom to type a page number and press Enter.'
+  },
+  {
+    name: 'Auto-Hide Bars',
+    icon: '\ud83d\udc41',
+    description: 'Top and bottom bars hide automatically during reading to maximize screen space.',
+    usage: 'Bars hide after 3 seconds of inactivity. Move mouse to the top or bottom edge of the screen to reveal them.'
+  },
+];
+
+window.FEATURE_REGISTRY = FEATURE_REGISTRY;
+
+const featureGuide = document.getElementById('featureGuide');
+const featureGuideClose = document.getElementById('featureGuideClose');
+const featureGuideBody = document.getElementById('featureGuideBody');
+const helpBtn = document.getElementById('helpBtn');
+
+function renderFeatureGuide() {
+  featureGuideBody.innerHTML = '';
+  for (const f of FEATURE_REGISTRY) {
+    const card = document.createElement('div');
+    card.className = 'guide-card';
+    card.innerHTML =
+      '<div class="guide-card-icon"></div>' +
+      '<div class="guide-card-content">' +
+        '<div class="guide-card-name"></div>' +
+        '<div class="guide-card-desc"></div>' +
+        '<div class="guide-card-usage"></div>' +
+      '</div>';
+    card.querySelector('.guide-card-icon').textContent = f.icon;
+    card.querySelector('.guide-card-name').textContent = f.name;
+    card.querySelector('.guide-card-desc').textContent = f.description;
+    card.querySelector('.guide-card-usage').textContent = f.usage;
+    featureGuideBody.appendChild(card);
+  }
+}
+
+function openFeatureGuide() {
+  renderFeatureGuide();
+  featureGuide.classList.add('active');
+}
+
+function closeFeatureGuide() {
+  featureGuide.classList.remove('active');
+}
+
+helpBtn.addEventListener('click', openFeatureGuide);
+featureGuideClose.addEventListener('click', closeFeatureGuide);
+
+// Click outside guide-inner to close
+featureGuide.addEventListener('click', (e) => {
+  if (e.target === featureGuide) {
+    closeFeatureGuide();
+  }
+});
+
 // ===== Auto-Hide Bars =====
 const AUTO_HIDE_DELAY = 3000;
 const EDGE_TRIGGER_PX = 50;
