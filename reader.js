@@ -19,6 +19,8 @@ let state = {
   fontSize: 18,
   // Content width
   contentWidth: 800,
+  // Theme
+  theme: 'brown',
 };
 
 // Expose state for testing
@@ -112,6 +114,7 @@ function init() {
   loadNotes();
   loadFontSize();
   loadContentWidth();
+  loadTheme();
   bindEvents();
 }
 
@@ -148,6 +151,40 @@ function changeContentWidth(delta) {
   localStorage.setItem('reader-content-width', state.contentWidth);
   applyContentWidth();
 }
+
+// ===== Page Theme =====
+const THEMES = {
+  white:  { bg: '#ffffff', text: '#2d2a24' },
+  black:  { bg: '#1a1a1a', text: '#d4d4d4' },
+  brown:  { bg: '#f5f0e8', text: '#2d2a24' },
+  green:  { bg: '#e8f5e9', text: '#1b3a1b' },
+};
+
+function loadTheme() {
+  const saved = localStorage.getItem('reader-theme');
+  const theme = (saved && THEMES[saved]) ? saved : 'brown';
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  if (!THEMES[theme]) theme = 'brown';
+  state.theme = theme;
+  readerScreen.dataset.theme = theme;
+  readerScreen.style.backgroundColor = THEMES[theme].bg;
+  readerScreen.style.color = THEMES[theme].text;
+
+  // Update swatch active state
+  const swatches = document.querySelectorAll('#themePicker .theme-swatch');
+  swatches.forEach(s => {
+    s.classList.toggle('active', s.dataset.theme === theme);
+  });
+}
+
+function setTheme(theme) {
+  applyTheme(theme);
+  localStorage.setItem('reader-theme', theme);
+}
+window.setTheme = setTheme;
 
 function loadSettings() {
   if (typeof chrome !== 'undefined' && chrome.storage) {
@@ -220,6 +257,11 @@ function restoreBookmark() {
 
 // ===== Event Binding =====
 function bindEvents() {
+  // Theme picker
+  document.querySelectorAll('#themePicker .theme-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => setTheme(swatch.dataset.theme));
+  });
+
   // File upload
   browseBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));

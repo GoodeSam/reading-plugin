@@ -82,6 +82,25 @@ body {
   text-overflow: ellipsis;
 }
 .top-bar-actions { display: flex; align-items: center; gap: 4px; }
+/* ===== Theme Picker ===== */
+.theme-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+}
+.theme-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.2s;
+}
+.theme-swatch:hover { border-color: #888; }
+.theme-swatch.active { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79,70,229,0.3); }
+
 .page-info { font-size: 13px; color: #888; font-family: sans-serif; }
 
 /* ===== Search Bar ===== */
