@@ -599,7 +599,6 @@ async function extractPDFPageImages(page, pageNum) {
 
   try {
     const ops = await page.getOperatorList();
-    let currentY = 0;
 
     // Collect image object names that need resolving
     const imageNames = [];
@@ -626,15 +625,41 @@ async function extractPDFPageImages(page, pageNum) {
       }
     }
 
+    // Track the current transform matrix (CTM) to compute absolute Y positions.
+    // PDF transforms are cumulative: each `transform` op multiplies onto the CTM.
+    // save/restore push/pop the CTM stack.
+    // CTM is [a, b, c, d, e, f] where (e, f) is the translation.
+    let ctm = [1, 0, 0, 1, 0, 0]; // identity
+    const ctmStack = [];
+
+    function multiplyMatrix(m1, m2) {
+      return [
+        m1[0] * m2[0] + m1[2] * m2[1],
+        m1[1] * m2[0] + m1[3] * m2[1],
+        m1[0] * m2[2] + m1[2] * m2[3],
+        m1[1] * m2[2] + m1[3] * m2[3],
+        m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+        m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+      ];
+    }
+
     for (let k = 0; k < ops.fnArray.length; k++) {
       const op = ops.fnArray[k];
 
-      // Track Y position from transform matrices
-      if (op === OPS.transform && ops.argsArray[k]) {
-        currentY = ops.argsArray[k][5] || currentY;
+      if (op === OPS.save) {
+        ctmStack.push(ctm.slice());
+      } else if (op === OPS.restore) {
+        ctm = ctmStack.pop() || [1, 0, 0, 1, 0, 0];
+      } else if (op === OPS.transform && ops.argsArray[k]) {
+        const args = ops.argsArray[k];
+        ctm = multiplyMatrix(ctm, [args[0], args[1], args[2], args[3], args[4], args[5]]);
       }
 
       if (!IMAGE_OPS.has(op)) continue;
+      // In PDF image transforms, ctm[5] is the bottom-left Y and ctm[3] is
+      // the image height in page units. Use the vertical midpoint for sorting
+      // so images interleave correctly with text baselines.
+      const currentY = ctm[5] + ctm[3] / 2;
 
       try {
         let imgData;
