@@ -375,6 +375,27 @@ body {
   margin-bottom: 6px;
 }
 .btn-toggle-cn:hover { background: #ddd; }
+.def-pronunciation {
+  padding: 0 18px 8px;
+  font-size: 14px;
+  color: #666;
+  font-family: sans-serif;
+}
+.btn-pronounce {
+  font-size: 18px;
+  margin-right: auto;
+  margin-left: 8px;
+  cursor: pointer;
+}
+.pos-tag {
+  display: inline;
+  font-weight: 700;
+  font-size: 14px;
+  font-family: sans-serif;
+}
+.pos-spacer {
+  display: inline;
+}
 
 /* ===== Selection Toolbar ===== */
 .selection-toolbar {

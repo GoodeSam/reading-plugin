@@ -5,37 +5,53 @@ document.addEventListener('DOMContentLoaded', () => {
   const status = document.getElementById('status');
   const openBtn = document.getElementById('openBtn');
 
-  // Load saved settings (API key in session storage for security, model in local)
+  if (!apiKeyInput || !modelSelect || !saveBtn || !status || !openBtn) {
+    console.error('Popup: required DOM elements missing');
+    return;
+  }
+
+  const STATUS_HIDE_MS = 2000;
   const keyStorage = chrome.storage.session || chrome.storage.local;
-  keyStorage.get(['openaiApiKey'], (data) => {
-    if (chrome.runtime.lastError) {
-      console.error('Failed to load API key:', chrome.runtime.lastError.message);
-    } else if (data.openaiApiKey) {
-      apiKeyInput.value = data.openaiApiKey;
-    }
-  });
-  chrome.storage.local.get(['openaiModel'], (data) => {
-    if (chrome.runtime.lastError) {
-      console.error('Failed to load model:', chrome.runtime.lastError.message);
-    } else if (data.openaiModel) {
-      modelSelect.value = data.openaiModel;
-    }
-  });
+
+  function getStorageValue(storage, key, onValue) {
+    storage.get([key], (data) => {
+      if (chrome.runtime.lastError) {
+        console.error(`Failed to load ${key}:`, chrome.runtime.lastError.message);
+      } else if (data[key]) {
+        onValue(data[key]);
+      }
+    });
+  }
+
+  // Load saved settings
+  getStorageValue(keyStorage, 'openaiApiKey', (val) => { apiKeyInput.value = val; });
+  getStorageValue(chrome.storage.local, 'openaiModel', (val) => { modelSelect.value = val; });
 
   saveBtn.addEventListener('click', () => {
-    const keyStore = chrome.storage.session || chrome.storage.local;
-    keyStore.set({ openaiApiKey: apiKeyInput.value.trim() }, () => {
+    let saveCount = 0;
+    let saveError = false;
+
+    function onSaved() {
+      saveCount++;
+      if (saveCount === 2 && !saveError) {
+        status.style.display = 'block';
+        setTimeout(() => status.style.display = 'none', STATUS_HIDE_MS);
+      }
+    }
+
+    keyStorage.set({ openaiApiKey: apiKeyInput.value.trim() }, () => {
       if (chrome.runtime.lastError) {
         console.error('Failed to save API key:', chrome.runtime.lastError.message);
+        saveError = true;
       }
+      onSaved();
     });
     chrome.storage.local.set({ openaiModel: modelSelect.value }, () => {
       if (chrome.runtime.lastError) {
         console.error('Failed to save model:', chrome.runtime.lastError.message);
-        return;
+        saveError = true;
       }
-      status.style.display = 'block';
-      setTimeout(() => status.style.display = 'none', 2000);
+      onSaved();
     });
   });
 

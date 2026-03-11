@@ -1,10 +1,16 @@
+// ===== Constants =====
+const DEFAULT_MODEL = 'gpt-4o-mini';
+const TTS_MODEL = 'tts-1';
+const TTS_VOICE = 'alloy';
+const SENTENCES_PER_PAGE = 40;
+
 // ===== State =====
 let state = {
   pages: [],        // Array of pages, each page is array of paragraphs, each paragraph is array of sentences
   currentPage: 0,
   totalPages: 0,
   apiKey: '',
-  model: 'gpt-4o-mini',
+  model: DEFAULT_MODEL,
   notes: [],
   activeSentenceEl: null,
   fileName: '',
@@ -24,8 +30,6 @@ let state = {
 
 // Expose state for testing
 window._readerState = state;
-
-const SENTENCES_PER_PAGE = 40;
 
 // ===== DOM Elements =====
 const $ = (sel) => document.querySelector(sel);
@@ -63,6 +67,8 @@ const defEnText = $('#defEnText');
 const defChineseSection = $('#defChineseSection');
 const toggleChinese = $('#toggleChinese');
 const defCnText = $('#defCnText');
+const defPronunciation = $('#defPronunciation');
+const btnPronounce = $('#btnPronounce');
 
 // Paragraph popup
 const paraPopup = $('#paraPopup');
@@ -205,7 +211,7 @@ function loadSettings() {
       state.apiKey = data.openaiApiKey || '';
     });
     chrome.storage.local.get(['openaiModel'], (data) => {
-      state.model = data.openaiModel || 'gpt-4o-mini';
+      state.model = data.openaiModel || DEFAULT_MODEL;
     });
   }
 }
@@ -343,6 +349,17 @@ function bindPanelEvents() {
   });
 
   wordPopupClose.addEventListener('click', closeWordPopup);
+  btnPronounce.addEventListener('click', () => {
+    const word = popupWord.textContent;
+    if (!word) return;
+    if (!state.apiKey) {
+      alert('Please set your OpenAI API key first.');
+      return;
+    }
+    window.playTTS(word).catch(err => {
+      console.error('Pronounce error:', err);
+    });
+  });
   toggleChinese.addEventListener('click', () => {
     const cnText = defCnText;
     const isVisible = cnText.style.display !== 'none';
@@ -424,74 +441,80 @@ function bindToolbarEvents() {
   widthIncrease.addEventListener('click', () => changeContentWidth(100));
 }
 
-function bindReaderContentEvents() {
-  readerContent.addEventListener('mouseover', (e) => {
-    const wordEl = e.target.closest('.word');
-    const sentenceEl = e.target.closest('.sentence');
+function handleReaderHover(e) {
+  const wordEl = e.target.closest('.word');
+  const sentenceEl = e.target.closest('.sentence');
 
+  clearHover();
+
+  if (wordEl && sentenceEl) {
+    wordEl.classList.add('hover-active');
+    sentenceEl.classList.add('hover-active');
+    state.hoveredWord = wordEl;
+    state.hoveredSentence = sentenceEl;
+  } else if (sentenceEl) {
+    sentenceEl.classList.add('hover-active');
+    state.hoveredSentence = sentenceEl;
+  }
+}
+
+function handleReaderMouseOut(e) {
+  const relatedWord = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.sentence') : null;
+  const currentSentence = e.target.closest('.sentence');
+  if (!relatedWord || relatedWord !== currentSentence) {
     clearHover();
+  }
+}
 
-    if (wordEl && sentenceEl) {
-      wordEl.classList.add('hover-active');
-      sentenceEl.classList.add('hover-active');
-      state.hoveredWord = wordEl;
-      state.hoveredSentence = sentenceEl;
-    } else if (sentenceEl) {
-      sentenceEl.classList.add('hover-active');
-      state.hoveredSentence = sentenceEl;
+function handleReaderClick(e) {
+  if (window.getSelection().toString().trim().length > 0) return;
+
+  const wordEl = e.target.closest('.word');
+  if (wordEl) {
+    e.stopPropagation();
+    const sentenceEl = wordEl.closest('.sentence');
+    const sentenceText = sentenceEl ? sentenceEl.dataset.sentence : '';
+    const raw = wordEl.textContent;
+    const cleanWord = raw.replace(/[^a-zA-Z'\u2019-]/g, '');
+    if (cleanWord.length > 0) {
+      showWordPopup(cleanWord, sentenceText, e);
     }
-  });
+    return;
+  }
+}
 
-  readerContent.addEventListener('mouseout', (e) => {
-    const relatedWord = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.sentence') : null;
-    const currentSentence = e.target.closest('.sentence');
-    if (!relatedWord || relatedWord !== currentSentence) {
-      clearHover();
-    }
-  });
+function handleReaderContextMenu(e) {
+  const sentenceEl = e.target.closest('.sentence');
+  if (sentenceEl) {
+    e.preventDefault();
+    openSentencePanel(sentenceEl);
+  }
+}
 
-  readerContent.addEventListener('click', (e) => {
-    if (window.getSelection().toString().trim().length > 0) return;
+function handleReaderTouch(e) {
+  const touchCount = e.touches.length;
 
-    const wordEl = e.target.closest('.word');
-    if (wordEl) {
-      e.stopPropagation();
-      const sentenceEl = wordEl.closest('.sentence');
-      const sentenceText = sentenceEl ? sentenceEl.dataset.sentence : '';
-      const raw = wordEl.textContent;
-      const cleanWord = raw.replace(/[^a-zA-Z'\u2019-]/g, '');
-      if (cleanWord.length > 0) {
-        showWordPopup(cleanWord, sentenceText, e);
-      }
-      return;
-    }
-  });
-
-  readerContent.addEventListener('contextmenu', (e) => {
+  if (touchCount === 2) {
     const sentenceEl = e.target.closest('.sentence');
-    if (sentenceEl) {
-      e.preventDefault();
-      openSentencePanel(sentenceEl);
-    }
-  });
+    if (!sentenceEl) return;
+    e.preventDefault();
+    openSentencePanel(sentenceEl);
+    window.translateSentence();
+    window.speakSentence();
+  } else if (touchCount === 3) {
+    const paraEl = e.target.closest('.paragraph');
+    if (!paraEl) return;
+    e.preventDefault();
+    openParaPopup(paraEl);
+  }
+}
 
-  readerContent.addEventListener('touchstart', (e) => {
-    const touchCount = e.touches.length;
-
-    if (touchCount === 2) {
-      const sentenceEl = e.target.closest('.sentence');
-      if (!sentenceEl) return;
-      e.preventDefault();
-      openSentencePanel(sentenceEl);
-      window.translateSentence();
-      window.speakSentence();
-    } else if (touchCount === 3) {
-      const paraEl = e.target.closest('.paragraph');
-      if (!paraEl) return;
-      e.preventDefault();
-      openParaPopup(paraEl);
-    }
-  });
+function bindReaderContentEvents() {
+  readerContent.addEventListener('mouseover', handleReaderHover);
+  readerContent.addEventListener('mouseout', handleReaderMouseOut);
+  readerContent.addEventListener('click', handleReaderClick);
+  readerContent.addEventListener('contextmenu', handleReaderContextMenu);
+  readerContent.addEventListener('touchstart', handleReaderTouch);
 }
 
 function bindEvents() {
@@ -708,13 +731,10 @@ async function parsePDF(file) {
     typeof item === 'object' ? true : item.length > 0
   );
 
-  if (hasImages) {
-    return filtered;
-  }
-  return filtered.filter(t => typeof t === 'string').join('\n\n');
+  return filtered;
 }
 
-async function resolveEPUBImageSrcs(items, archive) {
+async function resolveEPUBImageSrcs(items) {
   for (const item of items) {
     if (typeof item === 'object' && item.type === 'image' && item.src && typeof item.src.then === 'function') {
       try {
@@ -754,7 +774,7 @@ async function extractEPUBSectionItems(section, book, archive) {
       }
     });
     // Resolve any Promise-based image srcs from archive.createUrl()
-    const resolved = await resolveEPUBImageSrcs(extracted, archive);
+    const resolved = await resolveEPUBImageSrcs(extracted);
     for (const item of resolved) items.push(item);
   } else {
     const blocks = body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
@@ -820,12 +840,7 @@ async function parseEPUB(file) {
     throw new Error('No readable text found in EPUB.');
   }
 
-  // Return mixed array if images are present, otherwise plain text for backward compat
-  const hasImageItems = contentItems.some(item => typeof item === 'object' && item.type === 'image');
-  if (hasImageItems) {
-    return contentItems;
-  }
-  return contentItems.join('\n\n');
+  return contentItems;
 }
 
 // ===== EPUB Helpers =====
@@ -908,91 +923,71 @@ function normalizeImagePath(filepath) {
 window.normalizeImagePath = normalizeImagePath;
 
 // ===== Content Extraction (text + images) =====
+function pushResolvedImage(items, imgEl, resolveImageSrc) {
+  const src = imgEl.getAttribute('src');
+  if (src) {
+    const resolved = resolveImageSrc(src);
+    if (resolved) {
+      items.push({ type: 'image', src: resolved, alt: imgEl.getAttribute('alt') || '' });
+    }
+  }
+}
+
+function extractFigureItems(items, figureEl, resolveImageSrc) {
+  for (const child of figureEl.childNodes) {
+    if (child.nodeType === 1 && child.tagName === 'IMG') {
+      pushResolvedImage(items, child, resolveImageSrc);
+    } else if (child.nodeType === 1 || child.nodeType === 3) {
+      const text = (child.textContent || '').trim();
+      if (text) items.push(text);
+    }
+  }
+}
+
+function extractBlockItems(items, blockEl, resolveImageSrc) {
+  for (const child of blockEl.childNodes) {
+    if (child.nodeType === 1 && child.tagName === 'IMG') {
+      pushResolvedImage(items, child, resolveImageSrc);
+    } else if (child.nodeType === 3) {
+      const text = child.textContent.trim();
+      if (text) items.push(text);
+    } else if (child.nodeType === 1) {
+      const innerImgs = child.querySelectorAll('img');
+      if (innerImgs.length > 0) {
+        const text = child.textContent.trim();
+        if (text) items.push(text);
+        for (const img of innerImgs) {
+          pushResolvedImage(items, img, resolveImageSrc);
+        }
+      } else {
+        const text = child.textContent.trim();
+        if (text) items.push(text);
+      }
+    }
+  }
+}
+
 function extractContentItems(body, resolveImageSrc) {
-  // Walk through direct children and top-level elements in order,
-  // extracting text paragraphs and images in document order.
   const items = [];
   const blockTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE']);
 
   function processNode(node) {
-    if (node.nodeType === 1) { // Element
-      const tag = node.tagName;
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName;
 
-      if (tag === 'IMG') {
-        const src = node.getAttribute('src');
-        if (src) {
-          const resolved = resolveImageSrc(src);
-          if (resolved) {
-            items.push({ type: 'image', src: resolved, alt: node.getAttribute('alt') || '' });
-          }
-        }
-        return;
+    if (tag === 'IMG') {
+      pushResolvedImage(items, node, resolveImageSrc);
+    } else if (tag === 'FIGURE') {
+      extractFigureItems(items, node, resolveImageSrc);
+    } else if (blockTags.has(tag)) {
+      const imgs = node.querySelectorAll('img');
+      if (imgs.length > 0) {
+        extractBlockItems(items, node, resolveImageSrc);
+      } else {
+        const text = node.textContent.trim();
+        if (text) items.push(text);
       }
-
-      if (tag === 'FIGURE') {
-        // Walk figure children to extract images and captions in order
-        for (const child of node.childNodes) {
-          if (child.nodeType === 1 && child.tagName === 'IMG') {
-            const src = child.getAttribute('src');
-            if (src) {
-              const resolved = resolveImageSrc(src);
-              if (resolved) {
-                items.push({ type: 'image', src: resolved, alt: child.getAttribute('alt') || '' });
-              }
-            }
-          } else if (child.nodeType === 1 || child.nodeType === 3) {
-            const text = (child.textContent || '').trim();
-            if (text) items.push(text);
-          }
-        }
-        return;
-      }
-
-      if (blockTags.has(tag)) {
-        const imgs = node.querySelectorAll('img');
-        if (imgs.length > 0) {
-          // Walk child nodes to preserve text/image order inline
-          for (const child of node.childNodes) {
-            if (child.nodeType === 1 && child.tagName === 'IMG') {
-              const src = child.getAttribute('src');
-              if (src) {
-                const resolved = resolveImageSrc(src);
-                if (resolved) {
-                  items.push({ type: 'image', src: resolved, alt: child.getAttribute('alt') || '' });
-                }
-              }
-            } else if (child.nodeType === 3) {
-              const text = child.textContent.trim();
-              if (text) items.push(text);
-            } else if (child.nodeType === 1) {
-              // Non-img element child — check if it contains images
-              const innerImgs = child.querySelectorAll('img');
-              if (innerImgs.length > 0) {
-                const text = child.textContent.trim();
-                if (text) items.push(text);
-                for (const img of innerImgs) {
-                  const src = img.getAttribute('src');
-                  if (src) {
-                    const resolved = resolveImageSrc(src);
-                    if (resolved) {
-                      items.push({ type: 'image', src: resolved, alt: img.getAttribute('alt') || '' });
-                    }
-                  }
-                }
-              } else {
-                const text = child.textContent.trim();
-                if (text) items.push(text);
-              }
-            }
-          }
-        } else {
-          const text = node.textContent.trim();
-          if (text) items.push(text);
-        }
-        return;
-      }
-
-      // For other elements, recurse into children
+    } else {
       for (const child of node.childNodes) {
         processNode(child);
       }
@@ -1270,10 +1265,14 @@ function openParaPopup(paraEl) {
     promise.then((result) => {
       if (result) {
         paraPopupTranslation.textContent = result;
+      } else {
+        paraPopupTranslation.textContent = 'Translation unavailable.';
       }
     }).catch((err) => {
       paraPopupTranslation.textContent = 'Translation failed: ' + err.message;
     });
+  } else {
+    paraPopupTranslation.textContent = 'Translation unavailable.';
   }
 }
 
@@ -1286,13 +1285,13 @@ paraPopupClose.addEventListener('click', closeParaPopup);
 paraPopupOverlay.addEventListener('click', closeParaPopup);
 
 // ===== API Calls =====
-async function callOpenAI(messages, onError) {
+async function ensureApiKey() {
   if (!state.apiKey) {
     await new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         chrome.storage.local.get(['openaiApiKey', 'openaiModel'], (data) => {
           state.apiKey = data.openaiApiKey || '';
-          state.model = data.openaiModel || 'gpt-4o-mini';
+          state.model = data.openaiModel || DEFAULT_MODEL;
           resolve();
         });
       } else {
@@ -1300,8 +1299,11 @@ async function callOpenAI(messages, onError) {
       }
     });
   }
+  return !!state.apiKey;
+}
 
-  if (!state.apiKey) {
+async function callOpenAI(messages, onError) {
+  if (!await ensureApiKey()) {
     alert('Please set your OpenAI API key in the extension popup first.');
     return null;
   }
@@ -1337,6 +1339,7 @@ async function callOpenAI(messages, onError) {
 
 async function translateSentence() {
   const text = panelSentence.textContent;
+  const activeSentence = state.activeSentenceEl;
   btnTranslate.textContent = '\u23f3 Translating...';
   btnTranslate.disabled = true;
 
@@ -1348,10 +1351,36 @@ async function translateSentence() {
   btnTranslate.textContent = '\ud83c\udf10 Translate';
   btnTranslate.disabled = false;
 
-  if (result) {
+  if (result && state.activeSentenceEl === activeSentence) {
     translationText.textContent = result;
     panelTranslation.style.display = 'block';
   }
+}
+
+async function playTTS(text) {
+  const resp = await window.fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${state.apiKey}`
+    },
+    body: JSON.stringify({
+      model: TTS_MODEL,
+      input: text,
+      voice: TTS_VOICE,
+      response_format: 'mp3'
+    })
+  });
+
+  if (!resp.ok) throw new Error(`TTS error: ${resp.status}`);
+
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  const revokeUrl = () => URL.revokeObjectURL(url);
+  audio.onended = revokeUrl;
+  audio.onerror = revokeUrl;
+  audio.play().catch(revokeUrl);
 }
 
 async function speakSentence() {
@@ -1359,18 +1388,7 @@ async function speakSentence() {
   btnTTS.textContent = '\u23f3 Loading...';
   btnTTS.disabled = true;
 
-  if (!state.apiKey) {
-    await new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(['openaiApiKey'], (data) => {
-          state.apiKey = data.openaiApiKey || '';
-          resolve();
-        });
-      } else resolve();
-    });
-  }
-
-  if (!state.apiKey) {
+  if (!await ensureApiKey()) {
     alert('Please set your OpenAI API key first.');
     btnTTS.textContent = '\ud83d\udd0a Listen';
     btnTTS.disabled = false;
@@ -1378,29 +1396,7 @@ async function speakSentence() {
   }
 
   try {
-    const resp = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${state.apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: text,
-        voice: 'alloy',
-        response_format: 'mp3'
-      })
-    });
-
-    if (!resp.ok) throw new Error(`TTS error: ${resp.status}`);
-
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    const revokeUrl = () => URL.revokeObjectURL(url);
-    audio.onended = revokeUrl;
-    audio.onerror = revokeUrl;
-    audio.play().catch(revokeUrl);
+    await playTTS(text);
   } catch (err) {
     console.error('TTS error:', err);
     alert('TTS error: ' + err.message);
@@ -1410,6 +1406,7 @@ async function speakSentence() {
   btnTTS.disabled = false;
 }
 
+window.playTTS = playTTS;
 window.translateSentence = translateSentence;
 window.speakSentence = speakSentence;
 
@@ -1423,6 +1420,12 @@ function showWordPopup(word, sentenceContext, event) {
   defChineseSection.style.display = 'none';
   defCnText.style.display = 'none';
   toggleChinese.textContent = 'Show Chinese Definition';
+  defPronunciation.textContent = '';
+  defPronunciation.style.display = 'none';
+  const oldPosTag = defEnglish.querySelector('.pos-tag');
+  if (oldPosTag) oldPosTag.remove();
+  const oldSpacer = defEnglish.querySelector('.pos-spacer');
+  if (oldSpacer) oldSpacer.remove();
 
   const x = Math.min(event.clientX, window.innerWidth - 360);
   const y = event.clientY > window.innerHeight / 2
@@ -1446,7 +1449,11 @@ function closeWordPopup() {
   wordPopup.classList.remove('active');
 }
 
+let _lookupToken = 0;
+
 async function lookupWord(word, sentenceContext) {
+  popupWord.textContent = word;
+  const token = ++_lookupToken;
   const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
   const result = await apiCall([
     {
@@ -1466,6 +1473,7 @@ PRON: [IPA pronunciation]`
     defLoading.textContent = 'Error: ' + errMsg;
   });
 
+  if (token !== _lookupToken) return;
   defLoading.style.display = 'none';
 
   if (result) {
@@ -1474,8 +1482,32 @@ PRON: [IPA pronunciation]`
     const pronMatch = result.match(/PRON:\s*(.+)/);
 
     if (enMatch) {
-      defEnText.textContent = enMatch[1].trim();
+      const enRaw = enMatch[1].trim();
+      const posMatch = enRaw.match(/^\(([^)]+)\)\s*/);
+      const oldPosTag = defEnglish.querySelector('.pos-tag');
+      if (oldPosTag) oldPosTag.remove();
+      const oldSpacer = defEnglish.querySelector('.pos-spacer');
+      if (oldSpacer) oldSpacer.remove();
+      if (posMatch) {
+        const posSpan = document.createElement('strong');
+        posSpan.className = 'pos-tag';
+        posSpan.textContent = posMatch[1];
+        const spacer = document.createElement('span');
+        spacer.className = 'pos-spacer';
+        spacer.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;';
+        defEnglish.insertBefore(spacer, defEnText);
+        defEnglish.insertBefore(posSpan, spacer);
+        defEnText.textContent = enRaw.slice(posMatch[0].length);
+      } else {
+        defEnText.textContent = enRaw;
+      }
       defEnglish.style.display = 'block';
+    }
+    if (pronMatch) {
+      defPronunciation.textContent = pronMatch[1].trim();
+      defPronunciation.style.display = 'block';
+    } else {
+      defPronunciation.style.display = 'none';
     }
     if (cnMatch) {
       defCnText.textContent = cnMatch[1].trim();
@@ -1493,6 +1525,7 @@ PRON: [IPA pronunciation]`
 }
 
 window.lookupWord = lookupWord;
+window.showWordPopup = showWordPopup;
 
 // ===== Full-Text Search =====
 function openSearch() {
@@ -1512,7 +1545,7 @@ function closeSearch() {
 }
 
 function performSearch() {
-  const query = searchInput.value.trim().toLowerCase();
+  const query = searchInput.value.trim();
   state.searchMatches = [];
   state.searchCurrent = -1;
 
@@ -1522,6 +1555,10 @@ function performSearch() {
     return;
   }
 
+  // Use case-insensitive regex to handle Unicode casefolding correctly
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escaped, 'gi');
+
   // Search across all pages → find every sentence that contains the query
   for (let pi = 0; pi < state.pages.length; pi++) {
     const page = state.pages[pi];
@@ -1529,11 +1566,11 @@ function performSearch() {
       const para = page[pai];
       if (para.type === 'image') continue;
       for (let si = 0; si < para.sentences.length; si++) {
-        const sent = para.sentences[si].toLowerCase();
-        let idx = 0;
-        while ((idx = sent.indexOf(query, idx)) !== -1) {
-          state.searchMatches.push({ pageIndex: pi, paraIndex: pai, sentIndex: si, offset: idx, length: query.length });
-          idx += query.length;
+        const sent = para.sentences[si];
+        let m;
+        re.lastIndex = 0;
+        while ((m = re.exec(sent)) !== null) {
+          state.searchMatches.push({ pageIndex: pi, paraIndex: pai, sentIndex: si, offset: m.index, length: m[0].length });
         }
       }
     }
@@ -1625,6 +1662,10 @@ function highlightSearchOnPage() {
 }
 
 function rebuildSentenceWithHighlights(sentEl, sentenceText, matches) {
+  // Save original HTML for restoration on clear
+  if (!sentEl.dataset.originalHtml) {
+    sentEl.dataset.originalHtml = sentEl.innerHTML;
+  }
   // Strategy: get flat text, find character ranges, then rebuild with highlights
   // We need to map character positions in sentenceText to DOM positions
   // Collect all child nodes (word spans and text nodes)
@@ -1732,11 +1773,10 @@ function splitTextWithHighlights(nodeText, nodeStart, matches) {
 }
 
 function clearSearchHighlights() {
-  const marks = readerContent.querySelectorAll('mark.search-highlight');
-  for (const mark of marks) {
-    const parent = mark.parentNode;
-    parent.replaceChild(document.createTextNode(mark.textContent), mark);
-    parent.normalize();
+  const saved = readerContent.querySelectorAll('.sentence[data-original-html]');
+  for (const sentEl of saved) {
+    sentEl.innerHTML = sentEl.dataset.originalHtml;
+    delete sentEl.dataset.originalHtml;
   }
 }
 
