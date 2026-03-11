@@ -3,6 +3,10 @@ const DEFAULT_MODEL = 'gpt-4o-mini';
 const TTS_MODEL = 'tts-1';
 const TTS_VOICE = 'alloy';
 const SENTENCES_PER_PAGE = 40;
+const GOOGLE_TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/single';
+const MS_AUTH_URL = 'https://edge.microsoft.com/translate/auth';
+const MS_TRANSLATE_URL = 'https://api.cognitive.microsofttranslator.com/translate';
+const MS_DICT_URL = 'https://api.cognitive.microsofttranslator.com/dictionary/lookup';
 
 // ===== State =====
 let state = {
@@ -11,6 +15,9 @@ let state = {
   totalPages: 0,
   apiKey: '',
   model: DEFAULT_MODEL,
+  translationProvider: 'chatgpt',  // 'chatgpt' | 'google' | 'microsoft'
+  msAuthToken: '',
+  msAuthExpiry: 0,
   notes: [],
   activeSentenceEl: null,
   fileName: '',
@@ -210,8 +217,9 @@ function loadSettings() {
     keyStorage.get(['openaiApiKey'], (data) => {
       state.apiKey = data.openaiApiKey || '';
     });
-    chrome.storage.local.get(['openaiModel'], (data) => {
+    chrome.storage.local.get(['openaiModel', 'translationProvider'], (data) => {
       state.model = data.openaiModel || DEFAULT_MODEL;
+      state.translationProvider = data.translationProvider || 'chatgpt';
     });
   }
 }
@@ -1256,11 +1264,10 @@ function openParaPopup(paraEl) {
   paraPopup.classList.add('active');
 
   // Auto-trigger translation
-  const apiCall = window._stubCallOpenAI || ((msgs) => callOpenAI(msgs));
-  const promise = apiCall([
-    { role: 'system', content: 'You are a translator. Translate the following English text to Chinese. Only output the translation, nothing else.' },
-    { role: 'user', content: text }
-  ]);
+  const stubTranslate = window._stubTranslateText || window._stubCallOpenAI;
+  const promise = stubTranslate
+    ? stubTranslate(text)
+    : translateText(text, 'en', 'zh');
   if (promise && promise.then) {
     promise.then((result) => {
       if (result) {
@@ -1285,8 +1292,21 @@ paraPopupClose.addEventListener('click', closeParaPopup);
 paraPopupOverlay.addEventListener('click', closeParaPopup);
 
 // ===== API Calls =====
-async function ensureApiKey() {
-  if (!state.apiKey) {
+async function ensureSettings() {
+  if (!state.translationProvider) {
+    await new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.get(['openaiApiKey', 'openaiModel', 'translationProvider'], (data) => {
+          state.apiKey = data.openaiApiKey || '';
+          state.model = data.openaiModel || DEFAULT_MODEL;
+          state.translationProvider = data.translationProvider || 'chatgpt';
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  } else if (!state.apiKey) {
     await new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         chrome.storage.local.get(['openaiApiKey', 'openaiModel'], (data) => {
@@ -1299,11 +1319,218 @@ async function ensureApiKey() {
       }
     });
   }
-  return !!state.apiKey;
+  return state.translationProvider !== 'chatgpt' || !!state.apiKey;
 }
 
+// Backward-compatible alias
+const ensureApiKey = ensureSettings;
+
+// ===== Google Translate Provider =====
+async function googleTranslate(text, from, to) {
+  const params = new URLSearchParams({
+    client: 'gtx', sl: from, tl: to, dt: 't', q: text
+  });
+  const resp = await window.fetch(GOOGLE_TRANSLATE_URL + '?' + params.toString());
+  if (!resp.ok) throw new Error('Google Translate error: ' + resp.status);
+  const data = await resp.json();
+  // Response format: [[["translated text","source text",...],...],...]
+  if (data && data[0]) {
+    return data[0].map(seg => seg[0]).join('');
+  }
+  throw new Error('Unexpected Google Translate response');
+}
+
+async function googleLookupWord(word) {
+  // Use dt=t (translation), dt=bd (dictionary), dt=md (definitions), dt=rm (transliteration)
+  const params = new URLSearchParams({
+    client: 'gtx', sl: 'en', tl: 'zh-CN', hl: 'en',
+    dt: 't', q: word
+  });
+  // Add multiple dt params
+  ['bd', 'md', 'rm'].forEach(v => params.append('dt', v));
+  const resp = await window.fetch(GOOGLE_TRANSLATE_URL + '?' + params.toString());
+  if (!resp.ok) throw new Error('Google Translate error: ' + resp.status);
+  const data = await resp.json();
+
+  let pos = '', enDef = '', cnDef = '', pron = '';
+
+  // data[0] = translations: [["Chinese","English",...],...]
+  if (data[0] && data[0][0]) {
+    cnDef = data[0][0][0] || '';
+  }
+
+  // data[1] = dictionary entries: [["noun",["trans1","trans2",...],[[word,["back1","back2"]]],pos_label],...]
+  if (data[1] && data[1].length > 0) {
+    const entry = data[1][0];
+    pos = entry[0] || ''; // e.g. "noun", "verb", "adjective"
+    if (entry[2] && entry[2].length > 0) {
+      // entry[2] = [[word, [back-translations], null, score], ...]
+      // Use back-translations as definitions
+      const defs = entry[2].slice(0, 3).map(e => e[0]);
+      enDef = defs.join('; ');
+    }
+    // Combine translations from all POS entries for richer CN definition
+    const allCn = data[1].map(e => e[1] ? e[1].slice(0, 2).join(', ') : '').filter(Boolean);
+    if (allCn.length > 0) cnDef = allCn.join('; ');
+  }
+
+  // data[12] = definitions: [["noun",[["definition text",null,["example"],null,null],...],word],...]
+  if (data[12] && data[12].length > 0) {
+    const defEntry = data[12][0];
+    if (!pos && defEntry[0]) pos = defEntry[0];
+    if (defEntry[1] && defEntry[1].length > 0) {
+      enDef = defEntry[1][0][0] || enDef;
+    }
+  }
+
+  // data[0][1] = transliteration/pronunciation info at end of first segment
+  // data[0][0][3] = source transliteration sometimes
+  if (data[0] && data[0].length > 1 && data[0][data[0].length - 1]) {
+    const lastSeg = data[0][data[0].length - 1];
+    if (typeof lastSeg === 'string') pron = lastSeg;
+  }
+
+  // Abbreviate POS
+  const posAbbrev = { noun: 'n.', verb: 'v.', adjective: 'adj.', adverb: 'adv.',
+    pronoun: 'pron.', preposition: 'prep.', conjunction: 'conj.', interjection: 'interj.',
+    exclamation: 'interj.', determiner: 'det.' };
+  const posShort = posAbbrev[pos] || (pos ? pos + '.' : '');
+
+  const enLine = posShort ? `(${posShort}) ${enDef || word}` : (enDef || word);
+  return `EN: ${enLine}\nCN: ${cnDef || word}\n${pron ? 'PRON: ' + pron : ''}`.trim();
+}
+
+// ===== Microsoft Translate Provider =====
+async function msGetAuthToken() {
+  if (state.msAuthToken && Date.now() < state.msAuthExpiry) {
+    return state.msAuthToken;
+  }
+  const resp = await window.fetch(MS_AUTH_URL);
+  if (!resp.ok) throw new Error('Microsoft auth error: ' + resp.status);
+  const token = await resp.text();
+  state.msAuthToken = token;
+  state.msAuthExpiry = Date.now() + 8 * 60 * 1000; // refresh every 8 min (token valid ~10 min)
+  return token;
+}
+
+async function microsoftTranslate(text, from, to) {
+  const token = await msGetAuthToken();
+  const params = new URLSearchParams({ 'api-version': '3.0', from, to });
+  const resp = await window.fetch(MS_TRANSLATE_URL + '?' + params.toString(), {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify([{ Text: text }])
+  });
+  if (!resp.ok) throw new Error('Microsoft Translate error: ' + resp.status);
+  const data = await resp.json();
+  if (data && data[0] && data[0].translations && data[0].translations[0]) {
+    return data[0].translations[0].text;
+  }
+  throw new Error('Unexpected Microsoft Translate response');
+}
+
+async function microsoftLookupWord(word) {
+  const token = await msGetAuthToken();
+  // Dictionary lookup for structured word info
+  const dictParams = new URLSearchParams({ 'api-version': '3.0', from: 'en', to: 'zh-Hans' });
+  const dictResp = await window.fetch(MS_DICT_URL + '?' + dictParams.toString(), {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify([{ Text: word }])
+  });
+
+  let pos = '', enDef = '', cnDef = '';
+
+  if (dictResp.ok) {
+    const dictData = await dictResp.json();
+    if (dictData[0] && dictData[0].translations && dictData[0].translations.length > 0) {
+      const translations = dictData[0].translations;
+      // First translation entry has POS and target translation
+      pos = translations[0].posTag || '';
+      // Collect Chinese translations
+      cnDef = translations.slice(0, 4).map(t => t.displayTarget).join(', ');
+      // Use back-translations as English definitions
+      if (translations[0].backTranslations && translations[0].backTranslations.length > 0) {
+        enDef = translations[0].backTranslations.slice(0, 3).map(b => b.displayText).join(', ');
+      }
+    }
+  }
+
+  // Also get plain translation as fallback
+  if (!cnDef) {
+    cnDef = await microsoftTranslate(word, 'en', 'zh-Hans');
+  }
+
+  const posAbbrev = { NOUN: 'n.', VERB: 'v.', ADJ: 'adj.', ADV: 'adv.',
+    PRON: 'pron.', PREP: 'prep.', CONJ: 'conj.', DET: 'det.', OTHER: '' };
+  const posShort = posAbbrev[pos] || (pos ? pos.toLowerCase() + '.' : '');
+
+  const enLine = posShort ? `(${posShort}) ${enDef || word}` : (enDef || word);
+  return `EN: ${enLine}\nCN: ${cnDef || word}`;
+}
+
+// ===== Translation Dispatch =====
+async function translateText(text, from, to) {
+  await ensureSettings();
+  const provider = state.translationProvider;
+
+  if (provider === 'google') {
+    return await googleTranslate(text, from === 'en' ? 'en' : 'auto', to === 'zh' ? 'zh-CN' : to);
+  }
+  if (provider === 'microsoft') {
+    return await microsoftTranslate(text, from, to === 'zh' ? 'zh-Hans' : to);
+  }
+  // chatgpt
+  return await callOpenAI([
+    { role: 'system', content: 'You are a translator. Translate the following English text to Chinese. Only output the translation, nothing else.' },
+    { role: 'user', content: text }
+  ]);
+}
+
+async function lookupWordByProvider(word, sentenceContext) {
+  await ensureSettings();
+  const provider = state.translationProvider;
+
+  if (provider === 'google') {
+    return await googleLookupWord(word);
+  }
+  if (provider === 'microsoft') {
+    return await microsoftLookupWord(word);
+  }
+  // chatgpt - use the full prompt
+  const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
+  return await apiCall([
+    {
+      role: 'system',
+      content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
+1. The word's part of speech and English definition as used in this context (1-2 concise lines).
+2. The Chinese definition (1 line).
+3. The IPA pronunciation (1 line).
+
+Format your response exactly as:
+EN: [part of speech] [English definition]
+CN: [Chinese definition]
+PRON: [IPA pronunciation]`
+    },
+    { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
+  ], null);
+}
+
+window.translateText = translateText;
+window.googleTranslate = googleTranslate;
+window.microsoftTranslate = microsoftTranslate;
+window.googleLookupWord = googleLookupWord;
+window.microsoftLookupWord = microsoftLookupWord;
+
 async function callOpenAI(messages, onError) {
-  if (!await ensureApiKey()) {
+  await ensureSettings();
+  if (!state.apiKey) {
     alert('Please set your OpenAI API key in the extension popup first.');
     return null;
   }
@@ -1343,17 +1570,26 @@ async function translateSentence() {
   btnTranslate.textContent = '\u23f3 Translating...';
   btnTranslate.disabled = true;
 
-  const result = await callOpenAI([
-    { role: 'system', content: 'You are a translator. Translate the following English sentence to Chinese. Only output the translation, nothing else.' },
-    { role: 'user', content: text }
-  ]);
+  try {
+    const stubTranslate = window._stubTranslateText || window._stubCallOpenAI;
+    let result;
+    if (stubTranslate) {
+      result = await stubTranslate(text);
+    } else {
+      result = await translateText(text, 'en', 'zh');
+    }
 
-  btnTranslate.textContent = '\ud83c\udf10 Translate';
-  btnTranslate.disabled = false;
+    btnTranslate.textContent = '\ud83c\udf10 Translate';
+    btnTranslate.disabled = false;
 
-  if (result && state.activeSentenceEl === activeSentence) {
-    translationText.textContent = result;
-    panelTranslation.style.display = 'block';
+    if (result && state.activeSentenceEl === activeSentence) {
+      translationText.textContent = result;
+      panelTranslation.style.display = 'block';
+    }
+  } catch (err) {
+    btnTranslate.textContent = '\ud83c\udf10 Translate';
+    btnTranslate.disabled = false;
+    console.error('Translation error:', err);
   }
 }
 
@@ -1388,8 +1624,9 @@ async function speakSentence() {
   btnTTS.textContent = '\u23f3 Loading...';
   btnTTS.disabled = true;
 
-  if (!await ensureApiKey()) {
-    alert('Please set your OpenAI API key first.');
+  await ensureSettings();
+  if (!state.apiKey) {
+    alert('Please set your OpenAI API key for TTS.');
     btnTTS.textContent = '\ud83d\udd0a Listen';
     btnTTS.disabled = false;
     return;
@@ -1454,11 +1691,13 @@ let _lookupToken = 0;
 async function lookupWord(word, sentenceContext) {
   popupWord.textContent = word;
   const token = ++_lookupToken;
-  const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
-  const result = await apiCall([
-    {
-      role: 'system',
-      content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
+  let result;
+  try {
+    if (window._stubCallOpenAI) {
+      result = await window._stubCallOpenAI([
+        {
+          role: 'system',
+          content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
 1. The word's part of speech and English definition as used in this context (1-2 concise lines).
 2. The Chinese definition (1 line).
 3. The IPA pronunciation (1 line).
@@ -1467,11 +1706,15 @@ Format your response exactly as:
 EN: [part of speech] [English definition]
 CN: [Chinese definition]
 PRON: [IPA pronunciation]`
-    },
-    { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
-  ], (errMsg) => {
-    defLoading.textContent = 'Error: ' + errMsg;
-  });
+        },
+        { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
+      ]);
+    } else {
+      result = await lookupWordByProvider(word, sentenceContext);
+    }
+  } catch (err) {
+    defLoading.textContent = 'Error: ' + err.message;
+  }
 
   if (token !== _lookupToken) return;
   defLoading.style.display = 'none';

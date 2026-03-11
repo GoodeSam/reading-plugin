@@ -8,8 +8,11 @@ const path = require('path');
 
 function buildPopupDOM(sessionStore = {}, localStore = {}) {
   const html = `<!DOCTYPE html>
-    <input id="apiKey" />
-    <select id="model"><option value="gpt-4o-mini">Mini</option><option value="gpt-4o">4o</option></select>
+    <select id="provider"><option value="google">Google</option><option value="microsoft">Microsoft</option><option value="chatgpt">ChatGPT</option></select>
+    <div id="chatgptSettings">
+      <input id="apiKey" />
+      <select id="model"><option value="gpt-4o-mini">Mini</option><option value="gpt-4o">4o</option></select>
+    </div>
     <button id="saveBtn">Save</button>
     <div id="status" style="display:none">Saved</div>
     <button id="openBtn">Open Reader</button>`;
@@ -75,6 +78,34 @@ describe('popup.js', () => {
     ({ dom, win, chrome } = buildPopupDOM({}, { openaiModel: 'gpt-4o' }));
     expect(chrome.storage.local.get).toHaveBeenCalledWith(['openaiModel'], expect.any(Function));
     expect(win.document.getElementById('model').value).toBe('gpt-4o');
+  });
+
+  test('loads provider from local storage on init', () => {
+    ({ dom, win, chrome } = buildPopupDOM({}, { translationProvider: 'microsoft' }));
+    expect(chrome.storage.local.get).toHaveBeenCalledWith(['translationProvider'], expect.any(Function));
+    expect(win.document.getElementById('provider').value).toBe('microsoft');
+  });
+
+  test('save button stores provider in local storage', () => {
+    ({ dom, win, chrome } = buildPopupDOM());
+    win.document.getElementById('provider').value = 'google';
+    win.document.getElementById('saveBtn').click();
+    expect(chrome.storage.local.set).toHaveBeenCalledWith(
+      { translationProvider: 'google' },
+      expect.any(Function)
+    );
+  });
+
+  test('chatgpt settings hidden when provider is not chatgpt', () => {
+    ({ dom, win, chrome } = buildPopupDOM({}, { translationProvider: 'google' }));
+    const settings = win.document.getElementById('chatgptSettings');
+    expect(settings.classList.contains('hidden')).toBe(true);
+  });
+
+  test('chatgpt settings visible when provider is chatgpt', () => {
+    ({ dom, win, chrome } = buildPopupDOM({}, { translationProvider: 'chatgpt' }));
+    const settings = win.document.getElementById('chatgptSettings');
+    expect(settings.classList.contains('hidden')).toBe(false);
   });
 
   test('save button stores API key in session storage', () => {

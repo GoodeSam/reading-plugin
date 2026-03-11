@@ -38,20 +38,31 @@
     .btn-open:hover { background: #059669; }
     .status { font-size: 12px; color: #10b981; text-align: center; margin-top: 4px; display: none; }
     .divider { border-top: 1px solid #eee; margin: 16px 0; }
+    #chatgptSettings.hidden { display: none; }
+    .provider-note { font-size: 11px; color: #888; margin: -8px 0 12px; }
   </style>
 </head>
 <body>
   <h1>English Reader</h1>
 
-  <label for="apiKey">OpenAI API Key</label>
-  <input type="password" id="apiKey" placeholder="sk-...">
-
-  <label for="model">Model</label>
-  <select id="model">
-    <option value="gpt-4o-mini">GPT-4o Mini (fast & cheap)</option>
-    <option value="gpt-4o">GPT-4o</option>
-    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+  <label for="provider">Translation Provider</label>
+  <select id="provider">
+    <option value="google">Google Translate (free)</option>
+    <option value="microsoft">Microsoft Translate (free)</option>
+    <option value="chatgpt">ChatGPT (API key required)</option>
   </select>
+
+  <div id="chatgptSettings">
+    <label for="apiKey">OpenAI API Key</label>
+    <input type="password" id="apiKey" placeholder="sk-...">
+
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="gpt-4o-mini">GPT-4o Mini (fast & cheap)</option>
+      <option value="gpt-4o">GPT-4o</option>
+      <option value="gpt-4-turbo">GPT-4 Turbo</option>
+    </select>
+  </div>
 
   <button class="btn btn-primary" id="saveBtn">Save Settings</button>
   <div class="status" id="status">Settings saved!</div>
