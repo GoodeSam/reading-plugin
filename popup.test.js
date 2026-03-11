@@ -8,7 +8,7 @@ const path = require('path');
 
 function buildPopupDOM(sessionStore = {}, localStore = {}) {
   const html = `<!DOCTYPE html>
-    <select id="provider"><option value="google">Google</option><option value="microsoft">Microsoft</option><option value="chatgpt">ChatGPT</option></select>
+    <select id="provider"><option value="google">Google</option><option value="microsoft">Microsoft</option><option value="chatgpt">ChatGPT</option><option value="offline">Offline</option></select>
     <div id="chatgptSettings">
       <input id="apiKey" />
       <select id="model"><option value="gpt-4o-mini">Mini</option><option value="gpt-4o">4o</option></select>

@@ -15,7 +15,8 @@ let state = {
   totalPages: 0,
   apiKey: '',
   model: DEFAULT_MODEL,
-  translationProvider: 'chatgpt',  // 'chatgpt' | 'google' | 'microsoft'
+  translationProvider: 'chatgpt',  // 'chatgpt' | 'google' | 'microsoft' | 'offline'
+  offlineDict: null,  // loaded from dict-en.json
   msAuthToken: '',
   msAuthExpiry: 0,
   notes: [],
@@ -1475,11 +1476,58 @@ async function microsoftLookupWord(word) {
   return `EN: ${enLine}\nCN: ${cnDef || word}`;
 }
 
+// ===== Offline Dictionary =====
+async function loadOfflineDict() {
+  if (state.offlineDict) return state.offlineDict;
+  // Allow test injection
+  if (window._offlineDict) {
+    state.offlineDict = window._offlineDict;
+    return state.offlineDict;
+  }
+  try {
+    const url = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL
+      ? chrome.runtime.getURL('dict-en.json')
+      : 'dict-en.json';
+    const resp = await window.fetch(url);
+    state.offlineDict = await resp.json();
+  } catch (e) {
+    state.offlineDict = [];
+  }
+  return state.offlineDict;
+}
+
+async function offlineLookupWord(word) {
+  const dict = await loadOfflineDict();
+  const lower = word.toLowerCase();
+
+  // Search bundled dictionary first
+  const entry = dict.find(e => e.word.toLowerCase() === lower);
+  if (entry) {
+    return `EN: (${entry.pos}) ${entry.def}\nCN: ${entry.cn}\nPRON: ${entry.pron}`;
+  }
+
+  // Fall back to cached word list in localStorage
+  try {
+    const cached = JSON.parse(localStorage.getItem('reader-wordlist') || '[]');
+    const cachedEntry = cached.find(e => e.word.toLowerCase() === lower);
+    if (cachedEntry) {
+      return `EN: ${cachedEntry.englishDef}\nCN: ${cachedEntry.chineseDef}\nPRON: ${cachedEntry.pronunciation}`;
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+window.offlineLookupWord = offlineLookupWord;
+
 // ===== Translation Dispatch =====
 async function translateText(text, from, to) {
   await ensureSettings();
   const provider = state.translationProvider;
 
+  if (provider === 'offline') {
+    return '[offline mode] Sentence/paragraph translation is not available offline.';
+  }
   if (provider === 'google') {
     return await googleTranslate(text, from === 'en' ? 'en' : 'auto', to === 'zh' ? 'zh-CN' : to);
   }
@@ -1497,18 +1545,24 @@ async function lookupWordByProvider(word, sentenceContext) {
   await ensureSettings();
   const provider = state.translationProvider;
 
-  if (provider === 'google') {
-    return await googleLookupWord(word);
+  if (provider === 'offline') {
+    return await offlineLookupWord(word);
   }
-  if (provider === 'microsoft') {
-    return await microsoftLookupWord(word);
-  }
-  // chatgpt - use the full prompt
-  const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
-  return await apiCall([
-    {
-      role: 'system',
-      content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
+
+  // Online providers — fall back to offline dictionary on network failure
+  try {
+    if (provider === 'google') {
+      return await googleLookupWord(word);
+    }
+    if (provider === 'microsoft') {
+      return await microsoftLookupWord(word);
+    }
+    // chatgpt - use the full prompt
+    const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
+    return await apiCall([
+      {
+        role: 'system',
+        content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
 1. The word's part of speech and English definition as used in this context (1-2 concise lines).
 2. The Chinese definition (1 line).
 3. The IPA pronunciation (1 line).
@@ -1517,9 +1571,15 @@ Format your response exactly as:
 EN: [part of speech] [English definition]
 CN: [Chinese definition]
 PRON: [IPA pronunciation]`
-    },
-    { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
-  ], null);
+      },
+      { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
+    ], null);
+  } catch (err) {
+    // Network unavailable — try offline dictionary as fallback
+    const offlineResult = await offlineLookupWord(word);
+    if (offlineResult) return offlineResult;
+    throw err;  // Re-throw if offline lookup also fails
+  }
 }
 
 window.translateText = translateText;
@@ -1717,6 +1777,13 @@ PRON: [IPA pronunciation]`
   }
 
   if (token !== _lookupToken) return;
+
+  if (!result && state.translationProvider === 'offline') {
+    defLoading.textContent = `"${word}" not found in offline dictionary`;
+    defLoading.style.display = 'block';
+    return;
+  }
+
   defLoading.style.display = 'none';
 
   if (result) {

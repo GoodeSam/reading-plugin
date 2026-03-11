@@ -20,7 +20,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["reader.html", "lib/*"],
+      "resources": ["reader.html", "lib/*", "dict-en.json"],
       "matches": ["chrome-extension://*/*"]
     }
   ]
