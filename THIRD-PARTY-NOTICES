@@ -1,0 +1,15 @@
+Third-Party Libraries
+
+This project bundles the following third-party libraries in the lib/ directory:
+
+1. PDF.js (pdf.min.js, pdf.worker.min.js)
+   - License: Apache-2.0
+   - Source: https://github.com/nicolo-ribaudo/pdfjs-dist
+
+2. epub.js (epub.min.js)
+   - License: BSD-2-Clause
+   - Source: https://github.com/nicolo-ribaudo/epub.js
+
+3. JSZip (jszip.min.js)
+   - License: MIT / GPLv3 (dual-licensed)
+   - Source: https://github.com/nicolo-ribaudo/jszip

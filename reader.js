@@ -1,7 +1,6 @@
 // ===== State =====
 let state = {
   pages: [],        // Array of pages, each page is array of paragraphs, each paragraph is array of sentences
-  allParagraphs: [], // Flat list of all paragraphs (for search)
   currentPage: 0,
   totalPages: 0,
   apiKey: '',
@@ -201,16 +200,28 @@ window.setTheme = setTheme;
 
 function loadSettings() {
   if (typeof chrome !== 'undefined' && chrome.storage) {
-    chrome.storage.local.get(['openaiApiKey', 'openaiModel'], (data) => {
+    const keyStorage = chrome.storage.session || chrome.storage.local;
+    keyStorage.get(['openaiApiKey'], (data) => {
       state.apiKey = data.openaiApiKey || '';
+    });
+    chrome.storage.local.get(['openaiModel'], (data) => {
       state.model = data.openaiModel || 'gpt-4o-mini';
     });
   }
 }
 
+function safeParseJSON(str, fallback) {
+  try {
+    const parsed = JSON.parse(str);
+    return Array.isArray(fallback) && !Array.isArray(parsed) ? fallback : parsed;
+  } catch (e) {
+    return fallback;
+  }
+}
+
 function loadNotes() {
   const saved = localStorage.getItem('reader-notes');
-  if (saved) state.notes = JSON.parse(saved);
+  if (saved) state.notes = safeParseJSON(saved, []);
 }
 
 function saveNotes() {
@@ -234,7 +245,7 @@ function saveBookmark() {
 
 function loadBookmark() {
   const raw = localStorage.getItem(getBookmarkKey());
-  return raw ? JSON.parse(raw) : null;
+  return raw ? safeParseJSON(raw, null) : null;
 }
 
 function removeBookmark() {
@@ -269,13 +280,7 @@ function restoreBookmark() {
 }
 
 // ===== Event Binding =====
-function bindEvents() {
-  // Theme picker
-  document.querySelectorAll('#themePicker .theme-swatch').forEach(swatch => {
-    swatch.addEventListener('click', () => setTheme(swatch.dataset.theme));
-  });
-
-  // File upload
+function bindFileUploadEvents() {
   browseBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
   dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -285,8 +290,9 @@ function bindEvents() {
     dropZone.classList.remove('dragover');
     handleFile(e.dataTransfer.files[0]);
   });
+}
 
-  // Navigation
+function bindNavigationEvents() {
   backBtn.addEventListener('click', () => {
     readerScreen.classList.remove('active');
     uploadScreen.classList.add('active');
@@ -297,17 +303,14 @@ function bindEvents() {
   prevPageBtn.addEventListener('click', () => goToPage(state.currentPage - 1));
   nextPageBtn.addEventListener('click', () => goToPage(state.currentPage + 1));
 
-  // Keyboard navigation
   document.addEventListener('keydown', (e) => {
     if (!readerScreen.classList.contains('active')) return;
 
-    // Ctrl+F / Cmd+F → open search
     if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
       e.preventDefault();
       openSearch();
       return;
     }
-    // Escape → close search or panels
     if (e.key === 'Escape') {
       if (searchBar.classList.contains('active')) {
         closeSearch();
@@ -317,7 +320,6 @@ function bindEvents() {
       }
       return;
     }
-    // Enter in search → next match; Shift+Enter → prev
     if (searchBar.classList.contains('active') && e.key === 'Enter') {
       e.preventDefault();
       if (e.shiftKey) navigateSearch(-1);
@@ -327,8 +329,9 @@ function bindEvents() {
     if (e.key === 'ArrowLeft') goToPage(state.currentPage - 1);
     if (e.key === 'ArrowRight') goToPage(state.currentPage + 1);
   });
+}
 
-  // Sentence panel
+function bindPanelEvents() {
   panelClose.addEventListener('click', closeSentencePanel);
   panelOverlay.addEventListener('click', closeSentencePanel);
   btnTranslate.addEventListener('click', translateSentence);
@@ -339,7 +342,6 @@ function bindEvents() {
     setTimeout(() => btnCopy.textContent = '\ud83d\udccb Copy', 1500);
   });
 
-  // Word popup
   wordPopupClose.addEventListener('click', closeWordPopup);
   toggleChinese.addEventListener('click', () => {
     const cnText = defCnText;
@@ -348,7 +350,6 @@ function bindEvents() {
     toggleChinese.textContent = isVisible ? 'Show Chinese Definition' : 'Hide Chinese Definition';
   });
 
-  // Selection toolbar
   selCopy.addEventListener('click', () => {
     const sel = window.getSelection().toString();
     navigator.clipboard.writeText(sel);
@@ -360,7 +361,6 @@ function bindEvents() {
     hideSelectionToolbar();
   });
 
-  // Detect text selection
   document.addEventListener('mouseup', (e) => {
     setTimeout(() => {
       const sel = window.getSelection().toString().trim();
@@ -372,19 +372,22 @@ function bindEvents() {
     }, 10);
   });
 
-  // Close word popup on outside click
   document.addEventListener('mousedown', (e) => {
     if (wordPopup.classList.contains('active') && !wordPopup.contains(e.target) && !e.target.classList.contains('word')) {
       closeWordPopup();
     }
   });
+}
 
-  // Notes
+function bindToolbarEvents() {
+  document.querySelectorAll('#themePicker .theme-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => setTheme(swatch.dataset.theme));
+  });
+
   notesToggle.addEventListener('click', () => { notesPanel.classList.toggle('active'); renderNotes(); });
   notesClose.addEventListener('click', () => notesPanel.classList.remove('active'));
   notesExport.addEventListener('click', exportNotes);
 
-  // Search
   searchToggle.addEventListener('click', () => {
     if (searchBar.classList.contains('active')) closeSearch();
     else openSearch();
@@ -394,7 +397,6 @@ function bindEvents() {
   searchPrev.addEventListener('click', () => navigateSearch(-1));
   searchNext.addEventListener('click', () => navigateSearch(1));
 
-  // Bookmark
   let bookmarkLongPress = null;
   bookmarkBtn.addEventListener('mousedown', () => {
     bookmarkLongPress = setTimeout(() => {
@@ -416,20 +418,17 @@ function bindEvents() {
     }
   });
 
-  // Font size
   fontDecrease.addEventListener('click', () => changeFontSize(-2));
   fontIncrease.addEventListener('click', () => changeFontSize(2));
-
-  // Content width
   widthDecrease.addEventListener('click', () => changeContentWidth(-100));
   widthIncrease.addEventListener('click', () => changeContentWidth(100));
+}
 
-  // === Unified hover: mouseover on reader content ===
+function bindReaderContentEvents() {
   readerContent.addEventListener('mouseover', (e) => {
     const wordEl = e.target.closest('.word');
     const sentenceEl = e.target.closest('.sentence');
 
-    // Clear previous hover
     clearHover();
 
     if (wordEl && sentenceEl) {
@@ -444,7 +443,6 @@ function bindEvents() {
   });
 
   readerContent.addEventListener('mouseout', (e) => {
-    // Only clear if leaving the reader content entirely or moving to a different sentence
     const relatedWord = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.sentence') : null;
     const currentSentence = e.target.closest('.sentence');
     if (!relatedWord || relatedWord !== currentSentence) {
@@ -452,9 +450,7 @@ function bindEvents() {
     }
   });
 
-  // === Click: single-finger (left click) → word lookup ===
   readerContent.addEventListener('click', (e) => {
-    // Don't act if user is selecting text
     if (window.getSelection().toString().trim().length > 0) return;
 
     const wordEl = e.target.closest('.word');
@@ -469,12 +465,8 @@ function bindEvents() {
       }
       return;
     }
-
-    // Click on sentence (but not on a word) — do nothing special
-    // Sentence translation is triggered by two-finger press (contextmenu)
   });
 
-  // === Two-finger press (right-click / contextmenu) → sentence translation ===
   readerContent.addEventListener('contextmenu', (e) => {
     const sentenceEl = e.target.closest('.sentence');
     if (sentenceEl) {
@@ -483,12 +475,10 @@ function bindEvents() {
     }
   });
 
-  // === Touchpad gesture handlers ===
   readerContent.addEventListener('touchstart', (e) => {
     const touchCount = e.touches.length;
 
     if (touchCount === 2) {
-      // Two-finger tap → sentence translate + TTS
       const sentenceEl = e.target.closest('.sentence');
       if (!sentenceEl) return;
       e.preventDefault();
@@ -496,13 +486,20 @@ function bindEvents() {
       window.translateSentence();
       window.speakSentence();
     } else if (touchCount === 3) {
-      // Three-finger tap → paragraph translation popup
       const paraEl = e.target.closest('.paragraph');
       if (!paraEl) return;
       e.preventDefault();
       openParaPopup(paraEl);
     }
   });
+}
+
+function bindEvents() {
+  bindFileUploadEvents();
+  bindNavigationEvents();
+  bindPanelEvents();
+  bindToolbarEvents();
+  bindReaderContentEvents();
 }
 
 function clearHover() {
@@ -534,7 +531,6 @@ async function handleFile(file) {
     }
 
     const paragraphs = splitIntoParagraphs(text);
-    state.allParagraphs = paragraphs;
     paginateParagraphs(paragraphs);
 
     bookTitle.textContent = file.name.replace(/\.[^.]+$/, '');
@@ -556,92 +552,241 @@ async function handleFile(file) {
   }
 }
 
+async function extractPDFPageImages(page, pageNum) {
+  const images = [];
+  try {
+    const ops = await page.getOperatorList();
+    let currentY = 0;
+    for (let k = 0; k < ops.fnArray.length; k++) {
+      if (ops.fnArray[k] === 12 && ops.argsArray[k]) {
+        currentY = ops.argsArray[k][5] || currentY;
+      }
+      if (ops.fnArray[k] === 85 || ops.fnArray[k] === 82) {
+        const imgName = ops.argsArray[k][0];
+        try {
+          const imgData = await page.objs.get(imgName);
+          if (imgData && imgData.data) {
+            const canvas = document.createElement('canvas');
+            canvas.width = imgData.width;
+            canvas.height = imgData.height;
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.createImageData(imgData.width, imgData.height);
+            if (imgData.data.length === imgData.width * imgData.height * 4) {
+              imageData.data.set(imgData.data);
+            } else if (imgData.data.length === imgData.width * imgData.height * 3) {
+              for (let p = 0, q = 0; p < imgData.data.length; p += 3, q += 4) {
+                imageData.data[q] = imgData.data[p];
+                imageData.data[q + 1] = imgData.data[p + 1];
+                imageData.data[q + 2] = imgData.data[p + 2];
+                imageData.data[q + 3] = 255;
+              }
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const dataUrl = canvas.toDataURL('image/png');
+            if (imgData.width > 50 && imgData.height > 50) {
+              images.push({ type: 'image', src: dataUrl, alt: `Page ${pageNum} image`, y: Math.round(currentY) });
+            }
+          }
+        } catch (imgErr) {
+          console.warn(`PDF image extraction failed (page ${pageNum}):`, imgErr.message);
+        }
+      }
+    }
+  } catch (opsErr) {
+    console.warn(`PDF operator list extraction failed (page ${pageNum}):`, opsErr.message);
+  }
+  return images;
+}
+
+function buildStructuredLines(contentItems) {
+  const structuredLines = [];
+  let currentLine = [];
+  let lastY = null;
+  for (const item of contentItems) {
+    if (!item.transform || item.str == null) continue;
+    const y = Math.round(item.transform[5]);
+    if (lastY !== null && Math.abs(y - lastY) > 2) {
+      if (currentLine.length) {
+        const firstX = currentLine[0].transform[4];
+        structuredLines.push({
+          text: currentLine.map(it => it.str).join(''),
+          x: Math.round(firstX),
+          y: lastY,
+        });
+      }
+      currentLine = [];
+    }
+    currentLine.push(item);
+    lastY = y;
+  }
+  if (currentLine.length) {
+    const firstX = currentLine[0].transform[4];
+    structuredLines.push({
+      text: currentLine.map(it => it.str).join(''),
+      x: Math.round(firstX),
+      y: lastY,
+    });
+  }
+  return structuredLines;
+}
+
+function mergeLinesToParagraphs(structuredLines) {
+  const xCounts = {};
+  for (const ln of structuredLines) {
+    if (!ln.text.trim()) continue;
+    const rx = Math.round(ln.x / 3) * 3;
+    xCounts[rx] = (xCounts[rx] || 0) + 1;
+  }
+  const baselineX = Number(Object.entries(xCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 0);
+
+  const gaps = [];
+  for (let j = 1; j < structuredLines.length; j++) {
+    const gap = Math.abs(structuredLines[j - 1].y - structuredLines[j].y);
+    if (gap > 0) gaps.push(gap);
+  }
+  gaps.sort((a, b) => a - b);
+  const typicalGap = gaps.length > 0 ? gaps[Math.floor(gaps.length / 2)] : 14;
+
+  const textParas = [];
+  let para = '';
+  let paraY = 0;
+  for (let j = 0; j < structuredLines.length; j++) {
+    const ln = structuredLines[j];
+    const trimmed = ln.text.trim();
+
+    if (!trimmed) {
+      if (para.trim()) { textParas.push({ text: para.trim(), y: paraY }); }
+      para = '';
+      continue;
+    }
+
+    const isIndented = ln.x > baselineX + 6;
+    const hasLargeGap = j > 0 && Math.abs(structuredLines[j - 1].y - ln.y) > typicalGap * 1.4;
+
+    if (para && (isIndented || hasLargeGap)) {
+      textParas.push({ text: para.trim(), y: paraY });
+      para = '';
+    }
+
+    if (!para) paraY = ln.y;
+    para += (para && !para.endsWith('-') ? ' ' : '') + trimmed;
+  }
+  if (para.trim()) { textParas.push({ text: para.trim(), y: paraY }); }
+  return textParas;
+}
+
 async function parsePDF(file) {
   const arrayBuffer = await file.arrayBuffer();
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const texts = [];
+  const contentItems = [];
+  let hasImages = false;
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
 
-    // Build structured lines: {text, x, y, gap}
-    const structuredLines = [];
-    let currentLine = [];
-    let lastY = null;
-    for (const item of content.items) {
-      if (!item.transform || item.str == null) continue;
-      const y = Math.round(item.transform[5]);
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (currentLine.length) {
-          const firstX = currentLine[0].transform[4];
-          structuredLines.push({
-            text: currentLine.map(it => it.str).join(''),
-            x: Math.round(firstX),
-            y: lastY,
-          });
-        }
-        currentLine = [];
-      }
-      currentLine.push(item);
-      lastY = y;
+    const pageImages = await extractPDFPageImages(page, i);
+    if (pageImages.length > 0) hasImages = true;
+
+    const structuredLines = buildStructuredLines(content.items);
+    if (structuredLines.length === 0 && pageImages.length === 0) continue;
+
+    const textParas = mergeLinesToParagraphs(structuredLines);
+
+    const allItems = [
+      ...textParas.map(p => ({ content: p.text, y: p.y })),
+      ...pageImages.map(img => ({ content: img, y: img.y })),
+    ];
+    allItems.sort((a, b) => b.y - a.y);
+    for (const item of allItems) {
+      contentItems.push(item.content);
     }
-    if (currentLine.length) {
-      const firstX = currentLine[0].transform[4];
-      structuredLines.push({
-        text: currentLine.map(it => it.str).join(''),
-        x: Math.round(firstX),
-        y: lastY,
-      });
-    }
-
-    if (structuredLines.length === 0) continue;
-
-    // Compute the most common left X (body indent baseline)
-    const xCounts = {};
-    for (const ln of structuredLines) {
-      if (!ln.text.trim()) continue;
-      const rx = Math.round(ln.x / 3) * 3; // bucket to nearest 3
-      xCounts[rx] = (xCounts[rx] || 0) + 1;
-    }
-    const baselineX = Number(Object.entries(xCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 0);
-
-    // Compute the most common line gap (single line spacing)
-    const gaps = [];
-    for (let j = 1; j < structuredLines.length; j++) {
-      const gap = Math.abs(structuredLines[j - 1].y - structuredLines[j].y);
-      if (gap > 0) gaps.push(gap);
-    }
-    gaps.sort((a, b) => a - b);
-    const typicalGap = gaps.length > 0 ? gaps[Math.floor(gaps.length / 2)] : 14;
-
-    // Merge lines into paragraphs; break on blank line, large gap, or indentation
-    let para = '';
-    for (let j = 0; j < structuredLines.length; j++) {
-      const ln = structuredLines[j];
-      const trimmed = ln.text.trim();
-
-      if (!trimmed) {
-        if (para.trim()) texts.push(para.trim());
-        para = '';
-        continue;
-      }
-
-      const isIndented = ln.x > baselineX + 6;
-      const hasLargeGap = j > 0 && Math.abs(structuredLines[j - 1].y - ln.y) > typicalGap * 1.4;
-
-      if (para && (isIndented || hasLargeGap)) {
-        texts.push(para.trim());
-        para = '';
-      }
-
-      para += (para && !para.endsWith('-') ? ' ' : '') + trimmed;
-    }
-    if (para.trim()) texts.push(para.trim());
-    texts.push('');
   }
-  return texts.filter(t => t.length > 0).join('\n\n');
+
+  const filtered = contentItems.filter(item =>
+    typeof item === 'object' ? true : item.length > 0
+  );
+
+  if (hasImages) {
+    return filtered;
+  }
+  return filtered.filter(t => typeof t === 'string').join('\n\n');
+}
+
+async function resolveEPUBImageSrcs(items, archive) {
+  for (const item of items) {
+    if (typeof item === 'object' && item.type === 'image' && item.src && typeof item.src.then === 'function') {
+      try {
+        item.src = await item.src;
+      } catch (e) {
+        item.src = null;
+      }
+    }
+  }
+  return items.filter(item => typeof item === 'string' || (item && item.src));
+}
+
+async function extractEPUBSectionItems(section, book, archive) {
+  const items = [];
+  const doc = await section.load(book.load.bind(book));
+  if (!doc) return items;
+  const body = (doc.querySelector && doc.querySelector('body')) || doc;
+
+  const hasImages = body.querySelectorAll('img').length > 0;
+  if (hasImages) {
+    const sectionHref = section.href || '';
+    const extracted = extractContentItems(body, (src) => {
+      try {
+        const basePath = sectionHref.replace(/[^/]*$/, '');
+        const fullPath = normalizeImagePath(basePath ? basePath + src : src);
+        if (archive && archive.createUrl) {
+          // archive.createUrl() returns a Promise; getBlob() expects a leading '/'
+          // and strips it before zip lookup. Try the resolved path and a common
+          // 'OEBPS/' prefixed variant to handle different EPUB structures.
+          const primary = '/' + fullPath;
+          const withOEBPS = '/OEBPS/' + fullPath;
+          return archive.createUrl(primary).catch(() => archive.createUrl(withOEBPS));
+        }
+        return src;
+      } catch (e) {
+        return src;
+      }
+    });
+    // Resolve any Promise-based image srcs from archive.createUrl()
+    const resolved = await resolveEPUBImageSrcs(extracted, archive);
+    for (const item of resolved) items.push(item);
+  } else {
+    const blocks = body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+    if (blocks.length > 0) {
+      for (const block of blocks) {
+        const parts = extractPartsWithBr(block);
+        for (const part of parts) {
+          const text = part.trim();
+          if (text) items.push(text);
+        }
+      }
+    } else {
+      const raw = body.innerHTML || '';
+      if (raw.includes('<br')) {
+        const chunks = splitHtmlOnBr(body);
+        for (const chunk of chunks) {
+          const text = chunk.trim();
+          if (text) items.push(text);
+        }
+      } else {
+        const text = body.textContent.trim();
+        if (text) {
+          const paras = text.split(/\n[ \t]+/);
+          for (const p of paras) {
+            const cleaned = p.replace(/\s+/g, ' ').trim();
+            if (cleaned) items.push(cleaned);
+          }
+        }
+      }
+    }
+  }
+  return items;
 }
 
 async function parseEPUB(file) {
@@ -650,63 +795,37 @@ async function parseEPUB(file) {
   await book.ready;
 
   const spine = book.spine;
-  const texts = [];
+  const contentItems = []; // mixed: strings and { type: 'image', src, alt }
 
   if (!spine || !spine.spineItems) {
     throw new Error('Could not read EPUB spine.');
   }
 
-  for (const section of spine.spineItems) {
-    // Skip sections with no resolvable URL (causes indexOf crash inside epub.js)
-    if (!section.href && !section.url && !section.canonical) continue;
+  // Pre-load resources archive for image resolution
+  const archive = book.archive;
 
+  for (const section of spine.spineItems) {
+    if (!section.href && !section.url && !section.canonical) continue;
     try {
-      const doc = await section.load(book.load.bind(book));
-      if (!doc) continue;
-      const body = (doc.querySelector && doc.querySelector('body')) || doc;
-      const blocks = body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
-      if (blocks.length > 0) {
-        for (const block of blocks) {
-          // Split on <br> tags inside a block element
-          const parts = extractPartsWithBr(block);
-          for (const part of parts) {
-            const text = part.trim();
-            if (text) texts.push(text);
-          }
-        }
-      } else {
-        // No semantic block elements — split plain text on line breaks + indentation
-        const raw = body.innerHTML || '';
-        if (raw.includes('<br')) {
-          const chunks = splitHtmlOnBr(body);
-          for (const chunk of chunks) {
-            const text = chunk.trim();
-            if (text) texts.push(text);
-          }
-        } else {
-          const text = body.textContent.trim();
-          if (text) {
-            // Detect paragraph breaks: newline followed by indentation (spaces/tabs)
-            const paras = text.split(/\n[ \t]+/);
-            for (const p of paras) {
-              const cleaned = p.replace(/\s+/g, ' ').trim();
-              if (cleaned) texts.push(cleaned);
-            }
-          }
-        }
-      }
-      section.unload();
+      const items = await extractEPUBSectionItems(section, book, archive);
+      for (const item of items) contentItems.push(item);
     } catch (e) {
       console.warn('Skipping EPUB section:', section.href || section.index, e);
-      continue;
+    } finally {
+      try { section.unload(); } catch (_) {}
     }
   }
 
-  if (texts.length === 0) {
+  if (contentItems.length === 0) {
     throw new Error('No readable text found in EPUB.');
   }
 
-  return texts.join('\n\n');
+  // Return mixed array if images are present, otherwise plain text for backward compat
+  const hasImageItems = contentItems.some(item => typeof item === 'object' && item.type === 'image');
+  if (hasImageItems) {
+    return contentItems;
+  }
+  return contentItems.join('\n\n');
 }
 
 // ===== EPUB Helpers =====
@@ -760,21 +879,170 @@ function splitHtmlOnBr(container) {
   return results;
 }
 
+// ===== Path Utilities =====
+function normalizeImagePath(filepath) {
+  // Don't touch protocol URLs (https://, data:, blob:) or absolute paths
+  if (/^[a-z][a-z0-9+.-]*:/i.test(filepath)) return filepath;
+  if (filepath.startsWith('/')) {
+    // Absolute path — normalize but preserve leading /
+    const parts = filepath.split('/');
+    const result = [''];
+    for (let i = 1; i < parts.length; i++) {
+      if (parts[i] === '..') result.pop();
+      else if (parts[i] !== '.' && parts[i] !== '') result.push(parts[i]);
+    }
+    return result.join('/');
+  }
+  const parts = filepath.split('/');
+  const result = [];
+  for (const part of parts) {
+    if (part === '..') {
+      result.pop();
+    } else if (part !== '.' && part !== '') {
+      result.push(part);
+    }
+  }
+  return result.join('/');
+}
+
+window.normalizeImagePath = normalizeImagePath;
+
+// ===== Content Extraction (text + images) =====
+function extractContentItems(body, resolveImageSrc) {
+  // Walk through direct children and top-level elements in order,
+  // extracting text paragraphs and images in document order.
+  const items = [];
+  const blockTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE']);
+
+  function processNode(node) {
+    if (node.nodeType === 1) { // Element
+      const tag = node.tagName;
+
+      if (tag === 'IMG') {
+        const src = node.getAttribute('src');
+        if (src) {
+          const resolved = resolveImageSrc(src);
+          if (resolved) {
+            items.push({ type: 'image', src: resolved, alt: node.getAttribute('alt') || '' });
+          }
+        }
+        return;
+      }
+
+      if (tag === 'FIGURE') {
+        // Walk figure children to extract images and captions in order
+        for (const child of node.childNodes) {
+          if (child.nodeType === 1 && child.tagName === 'IMG') {
+            const src = child.getAttribute('src');
+            if (src) {
+              const resolved = resolveImageSrc(src);
+              if (resolved) {
+                items.push({ type: 'image', src: resolved, alt: child.getAttribute('alt') || '' });
+              }
+            }
+          } else if (child.nodeType === 1 || child.nodeType === 3) {
+            const text = (child.textContent || '').trim();
+            if (text) items.push(text);
+          }
+        }
+        return;
+      }
+
+      if (blockTags.has(tag)) {
+        const imgs = node.querySelectorAll('img');
+        if (imgs.length > 0) {
+          // Walk child nodes to preserve text/image order inline
+          for (const child of node.childNodes) {
+            if (child.nodeType === 1 && child.tagName === 'IMG') {
+              const src = child.getAttribute('src');
+              if (src) {
+                const resolved = resolveImageSrc(src);
+                if (resolved) {
+                  items.push({ type: 'image', src: resolved, alt: child.getAttribute('alt') || '' });
+                }
+              }
+            } else if (child.nodeType === 3) {
+              const text = child.textContent.trim();
+              if (text) items.push(text);
+            } else if (child.nodeType === 1) {
+              // Non-img element child — check if it contains images
+              const innerImgs = child.querySelectorAll('img');
+              if (innerImgs.length > 0) {
+                const text = child.textContent.trim();
+                if (text) items.push(text);
+                for (const img of innerImgs) {
+                  const src = img.getAttribute('src');
+                  if (src) {
+                    const resolved = resolveImageSrc(src);
+                    if (resolved) {
+                      items.push({ type: 'image', src: resolved, alt: img.getAttribute('alt') || '' });
+                    }
+                  }
+                }
+              } else {
+                const text = child.textContent.trim();
+                if (text) items.push(text);
+              }
+            }
+          }
+        } else {
+          const text = node.textContent.trim();
+          if (text) items.push(text);
+        }
+        return;
+      }
+
+      // For other elements, recurse into children
+      for (const child of node.childNodes) {
+        processNode(child);
+      }
+    }
+  }
+
+  for (const child of body.childNodes) {
+    processNode(child);
+  }
+
+  return items;
+}
+
+window.extractContentItems = extractContentItems;
+
 // ===== Text Processing =====
 function splitIntoSentences(text) {
-  const raw = text.match(/[^.!?]*[.!?]+[\s]?|[^.!?]+$/g) || [text];
+  // Match sentence-ending punctuation, optionally followed by closing quotes/brackets
+  const raw = text.match(/[^.!?。！？]*[.!?。！？]+["\u201d\u2019\u300b\u300d\u3009\u3011\uff09)'\]]*[\s]?|[^.!?。！？]+$/g) || [text];
   return raw.map(s => s.trim()).filter(s => s.length > 0);
 }
 
-function splitIntoParagraphs(text) {
-  return text.split(/\n\s*\n/)
-    .map(p => p.replace(/\s+/g, ' ').trim())
-    .filter(p => p.length > 0)
-    .map(p => ({
-      text: p,
-      sentences: splitIntoSentences(p)
-    }));
+function splitIntoParagraphs(input) {
+  // Accept a plain string (backward compat) or an array of mixed items
+  if (typeof input === 'string') {
+    return input.split(/\n\s*\n/)
+      .map(p => p.replace(/\s+/g, ' ').trim())
+      .filter(p => p.length > 0)
+      .map(p => ({
+        type: 'text',
+        text: p,
+        sentences: splitIntoSentences(p)
+      }));
+  }
+  // Array of strings and image objects
+  const result = [];
+  for (const item of input) {
+    if (typeof item === 'object' && item.type === 'image') {
+      result.push(item);
+    } else if (typeof item === 'string') {
+      const trimmed = item.replace(/\s+/g, ' ').trim();
+      if (trimmed.length > 0) {
+        result.push({ type: 'text', text: trimmed, sentences: splitIntoSentences(trimmed) });
+      }
+    }
+  }
+  return result;
 }
+
+window.splitIntoParagraphs = splitIntoParagraphs;
 
 function paginateParagraphs(paragraphs) {
   state.pages = [];
@@ -782,18 +1050,54 @@ function paginateParagraphs(paragraphs) {
   let sentenceCount = 0;
 
   for (const para of paragraphs) {
-    currentPage.push(para);
-    sentenceCount += para.sentences.length;
+    if (para.type === 'image') {
+      currentPage.push(para);
+      sentenceCount += 1;
+      if (sentenceCount >= SENTENCES_PER_PAGE) {
+        state.pages.push(currentPage);
+        currentPage = [];
+        sentenceCount = 0;
+      }
+      continue;
+    }
 
-    if (sentenceCount >= SENTENCES_PER_PAGE) {
-      state.pages.push(currentPage);
-      currentPage = [];
-      sentenceCount = 0;
+    // Split large text paragraphs across pages
+    const remaining = SENTENCES_PER_PAGE - sentenceCount;
+    if (para.sentences.length <= remaining) {
+      // Fits on current page
+      currentPage.push(para);
+      sentenceCount += para.sentences.length;
+      if (sentenceCount >= SENTENCES_PER_PAGE) {
+        state.pages.push(currentPage);
+        currentPage = [];
+        sentenceCount = 0;
+      }
+    } else {
+      // Split the paragraph across pages
+      let offset = 0;
+      while (offset < para.sentences.length) {
+        const space = SENTENCES_PER_PAGE - sentenceCount;
+        const chunk = para.sentences.slice(offset, offset + space);
+        currentPage.push({
+          type: 'text',
+          text: chunk.join(' '),
+          sentences: chunk,
+        });
+        sentenceCount += chunk.length;
+        offset += chunk.length;
+        if (sentenceCount >= SENTENCES_PER_PAGE) {
+          state.pages.push(currentPage);
+          currentPage = [];
+          sentenceCount = 0;
+        }
+      }
     }
   }
   if (currentPage.length > 0) state.pages.push(currentPage);
   state.totalPages = state.pages.length;
 }
+
+window.paginateParagraphs = paginateParagraphs;
 
 // ===== Rendering =====
 function goToPage(pageIndex, resetScroll = true) {
@@ -813,6 +1117,20 @@ function renderPage() {
   for (const para of page) {
     const pEl = document.createElement('div');
     pEl.className = 'paragraph';
+
+    if (para.type === 'image') {
+      pEl.classList.add('image-paragraph');
+      const img = document.createElement('img');
+      img.src = para.src;
+      img.alt = para.alt || '';
+      img.style.maxWidth = '100%';
+      img.style.display = 'block';
+      img.style.margin = '0 auto';
+      img.style.height = 'auto';
+      pEl.appendChild(img);
+      readerContent.appendChild(pEl);
+      continue;
+    }
 
     for (let i = 0; i < para.sentences.length; i++) {
       const sEl = document.createElement('span');
@@ -953,6 +1271,8 @@ function openParaPopup(paraEl) {
       if (result) {
         paraPopupTranslation.textContent = result;
       }
+    }).catch((err) => {
+      paraPopupTranslation.textContent = 'Translation failed: ' + err.message;
     });
   }
 }
@@ -1077,8 +1397,10 @@ async function speakSentence() {
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    audio.play();
-    audio.onended = () => URL.revokeObjectURL(url);
+    const revokeUrl = () => URL.revokeObjectURL(url);
+    audio.onended = revokeUrl;
+    audio.onerror = revokeUrl;
+    audio.play().catch(revokeUrl);
   } catch (err) {
     console.error('TTS error:', err);
     alert('TTS error: ' + err.message);
@@ -1205,6 +1527,7 @@ function performSearch() {
     const page = state.pages[pi];
     for (let pai = 0; pai < page.length; pai++) {
       const para = page[pai];
+      if (para.type === 'image') continue;
       for (let si = 0; si < para.sentences.length; si++) {
         const sent = para.sentences[si].toLowerCase();
         let idx = 0;
@@ -1227,6 +1550,8 @@ function performSearch() {
     clearSearchHighlights();
   }
 }
+
+window.performSearch = performSearch;
 
 function navigateSearch(direction) {
   if (state.searchMatches.length === 0) return;
@@ -1251,7 +1576,7 @@ function goToSearchMatch() {
   requestAnimationFrame(() => {
     const currentEl = readerContent.querySelector('.search-highlight.current');
     if (currentEl) {
-      currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (currentEl.scrollIntoView) currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   });
 }
@@ -1302,12 +1627,9 @@ function highlightSearchOnPage() {
 function rebuildSentenceWithHighlights(sentEl, sentenceText, matches) {
   // Strategy: get flat text, find character ranges, then rebuild with highlights
   // We need to map character positions in sentenceText to DOM positions
-  const lowerText = sentenceText.toLowerCase();
-
   // Collect all child nodes (word spans and text nodes)
   const fragment = document.createDocumentFragment();
   let charPos = 0;
-  let matchIdx = 0;
 
   // Process character by character through the original sentence text
   // Build new nodes with highlight spans where needed
@@ -1315,9 +1637,9 @@ function rebuildSentenceWithHighlights(sentEl, sentenceText, matches) {
 
   for (const node of nodes) {
     let nodeText;
-    const isWord = node.nodeType === Node.ELEMENT_NODE && node.classList.contains('word');
+    const isWord = node.nodeType === 1 && node.classList.contains('word');
 
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (node.nodeType === 3) {
       nodeText = node.textContent;
     } else if (isWord) {
       nodeText = node.textContent;
@@ -1461,7 +1783,7 @@ function renderNotes() {
     el.className = 'note-item';
     el.innerHTML = `
       <div>${escapeHtml(note.text)}</div>
-      <div style="font-size:11px;color:#999;margin-top:4px;">${note.date}</div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">${escapeHtml(note.date)}</div>
       <button class="note-delete" data-index="${realIndex}">&times;</button>
     `;
     notesList.appendChild(el);
@@ -1503,7 +1825,7 @@ const wordListExport = $('#wordListExport');
 
 function loadWordList() {
   const raw = localStorage.getItem('reader-wordlist');
-  return raw ? JSON.parse(raw) : [];
+  return raw ? safeParseJSON(raw, []) : [];
 }
 
 function saveWordList(list) {
@@ -1523,6 +1845,7 @@ function recordWord({ word, englishDef, chineseDef, pronunciation, sentenceConte
     existing.pronunciation = pronunciation;
     existing.lastQueried = new Date().toISOString();
     // Append sentence context if new and non-empty
+    if (!Array.isArray(existing.sentenceContext)) existing.sentenceContext = [];
     if (sentenceContext && !existing.sentenceContext.includes(sentenceContext)) {
       existing.sentenceContext.push(sentenceContext);
     }
@@ -1654,7 +1977,7 @@ const historyClear = $('#historyClear');
 
 function loadHistory() {
   const raw = localStorage.getItem('reader-history');
-  return raw ? JSON.parse(raw) : [];
+  return raw ? safeParseJSON(raw, []) : [];
 }
 
 function saveHistoryToStorage(history) {
@@ -1707,7 +2030,14 @@ function renderHistory() {
     el.className = 'history-item';
     const d = new Date(entry.date);
     const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    el.innerHTML = `<div class="history-page">Page ${entry.page + 1} / ${entry.totalPages}</div><div class="history-date">${dateStr}</div>`;
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'history-page';
+    pageDiv.textContent = `Page ${parseInt(entry.page, 10) + 1} / ${parseInt(entry.totalPages, 10)}`;
+    const dateDiv = document.createElement('div');
+    dateDiv.className = 'history-date';
+    dateDiv.textContent = dateStr;
+    el.appendChild(pageDiv);
+    el.appendChild(dateDiv);
     el.addEventListener('click', () => {
       goToPage(entry.page, false);
       requestAnimationFrame(() => {

@@ -21,7 +21,7 @@
   "web_accessible_resources": [
     {
       "resources": ["reader.html", "lib/*"],
-      "matches": ["<all_urls>"]
+      "matches": ["chrome-extension://*/*"]
     }
   ]
 }

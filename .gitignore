@@ -4,6 +4,8 @@ Untitled-1.md
 process.md
 .claude/
 node_modules/
+.DS_Store
+books/
 
 # Secrets & credentials
 .env

@@ -273,8 +273,8 @@ describe('paragraph popup — translation display', () => {
     const sentenceEl = doc.querySelector('.sentence');
     fireTouchStart(win, sentenceEl, 3);
 
-    // Wait for the async translation to complete
-    await new Promise(r => setTimeout(r, 50));
+    // Flush microtask queue for the promise .then() chain to complete
+    await new Promise(r => process.nextTick(r));
 
     const result = doc.getElementById('paraPopupTranslation');
     expect(result.textContent).toContain('\u592a\u9633\u6162\u6162\u5347\u8d77');

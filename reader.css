@@ -191,6 +191,17 @@ body {
   border-left: 3px solid #d6cdbf;
   border-radius: 0 6px 6px 0;
 }
+.paragraph.image-paragraph {
+  text-indent: 0;
+  text-align: center;
+}
+.paragraph.image-paragraph img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  border-radius: 4px;
+}
 .sentence {
   cursor: pointer;
   border-radius: 4px;
