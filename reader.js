@@ -221,6 +221,7 @@ function loadSettings() {
     chrome.storage.local.get(['openaiModel', 'translationProvider'], (data) => {
       state.model = data.openaiModel || DEFAULT_MODEL;
       state.translationProvider = data.translationProvider || 'chatgpt';
+      state._settingsLoaded = true;
     });
   }
 }
@@ -578,6 +579,8 @@ async function handleFile(file) {
     if (!restoreBookmark()) {
       goToPage(0);
     }
+
+    startAutoHideTimer();
   } catch (err) {
     console.error(err);
     alert('Failed to parse file: ' + err.message);
@@ -586,42 +589,116 @@ async function handleFile(file) {
 
 async function extractPDFPageImages(page, pageNum) {
   const images = [];
+  const OPS = pdfjsLib.OPS;
+  const IMAGE_OPS = new Set([
+    OPS.paintImageXObject,          // 85
+    OPS.paintImageMaskXObject,      // 83
+    OPS.paintInlineImageXObject,    // 86
+    OPS.paintImageXObjectRepeat,    // 88
+  ]);
+
   try {
     const ops = await page.getOperatorList();
     let currentY = 0;
+
+    // Collect image object names that need resolving
+    const imageNames = [];
     for (let k = 0; k < ops.fnArray.length; k++) {
-      if (ops.fnArray[k] === 12 && ops.argsArray[k]) {
+      const op = ops.fnArray[k];
+      if (op === OPS.paintImageXObject || op === OPS.paintImageXObjectRepeat) {
+        const name = ops.argsArray[k][0];
+        if (typeof name === 'string') imageNames.push(name);
+      }
+    }
+
+    // Wait for all image objects to be resolved by rendering the page
+    // This forces PDF.js to decode all images before we access them
+    if (imageNames.length > 0) {
+      const viewport = page.getViewport({ scale: 1 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(viewport.width, 1);
+      canvas.height = Math.min(viewport.height, 1);
+      const ctx = canvas.getContext('2d');
+      try {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+      } catch (e) {
+        // Render may fail in some contexts but images should still be resolved
+      }
+    }
+
+    for (let k = 0; k < ops.fnArray.length; k++) {
+      const op = ops.fnArray[k];
+
+      // Track Y position from transform matrices
+      if (op === OPS.transform && ops.argsArray[k]) {
         currentY = ops.argsArray[k][5] || currentY;
       }
-      if (ops.fnArray[k] === 85 || ops.fnArray[k] === 82) {
-        const imgName = ops.argsArray[k][0];
-        try {
-          const imgData = await page.objs.get(imgName);
-          if (imgData && imgData.data) {
-            const canvas = document.createElement('canvas');
-            canvas.width = imgData.width;
-            canvas.height = imgData.height;
-            const ctx = canvas.getContext('2d');
-            const imageData = ctx.createImageData(imgData.width, imgData.height);
-            if (imgData.data.length === imgData.width * imgData.height * 4) {
-              imageData.data.set(imgData.data);
-            } else if (imgData.data.length === imgData.width * imgData.height * 3) {
-              for (let p = 0, q = 0; p < imgData.data.length; p += 3, q += 4) {
-                imageData.data[q] = imgData.data[p];
-                imageData.data[q + 1] = imgData.data[p + 1];
-                imageData.data[q + 2] = imgData.data[p + 2];
-                imageData.data[q + 3] = 255;
-              }
-            }
-            ctx.putImageData(imageData, 0, 0);
-            const dataUrl = canvas.toDataURL('image/png');
-            if (imgData.width > 50 && imgData.height > 50) {
-              images.push({ type: 'image', src: dataUrl, alt: `Page ${pageNum} image`, y: Math.round(currentY) });
-            }
+
+      if (!IMAGE_OPS.has(op)) continue;
+
+      try {
+        let imgData;
+        if (op === OPS.paintInlineImageXObject) {
+          // Inline images have data directly in args
+          imgData = ops.argsArray[k][0];
+        } else {
+          // Named images — get from page objects
+          const imgName = ops.argsArray[k][0];
+          if (typeof imgName !== 'string') continue;
+
+          imgData = page.objs.has(imgName) ? page.objs.get(imgName) : null;
+          // Also try common objects (shared across pages)
+          if (!imgData && page.commonObjs && page.commonObjs.has(imgName)) {
+            imgData = page.commonObjs.get(imgName);
           }
-        } catch (imgErr) {
-          console.warn(`PDF image extraction failed (page ${pageNum}):`, imgErr.message);
         }
+
+        if (!imgData) continue;
+
+        const w = imgData.width;
+        const h = imgData.height;
+        if (!w || !h || w <= 50 || h <= 50) continue;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+
+        if (imgData.bitmap) {
+          // PDF.js 3.x may return ImageBitmap
+          ctx.drawImage(imgData.bitmap, 0, 0);
+        } else if (imgData.data) {
+          const imageData = ctx.createImageData(w, h);
+          const pixelCount = w * h;
+          if (imgData.data.length === pixelCount * 4) {
+            imageData.data.set(imgData.data);
+          } else if (imgData.data.length === pixelCount * 3) {
+            for (let p = 0, q = 0; p < imgData.data.length; p += 3, q += 4) {
+              imageData.data[q] = imgData.data[p];
+              imageData.data[q + 1] = imgData.data[p + 1];
+              imageData.data[q + 2] = imgData.data[p + 2];
+              imageData.data[q + 3] = 255;
+            }
+          } else if (imgData.data.length === pixelCount) {
+            // Grayscale
+            for (let p = 0, q = 0; p < imgData.data.length; p++, q += 4) {
+              imageData.data[q] = imgData.data[p];
+              imageData.data[q + 1] = imgData.data[p];
+              imageData.data[q + 2] = imgData.data[p];
+              imageData.data[q + 3] = 255;
+            }
+          } else {
+            continue;
+          }
+          ctx.putImageData(imageData, 0, 0);
+        } else {
+          continue;
+        }
+
+        const dataUrl = canvas.toDataURL('image/png');
+        images.push({ type: 'image', src: dataUrl, alt: `Page ${pageNum} image`, y: Math.round(currentY) });
+      } catch (imgErr) {
+        console.warn(`PDF image extraction failed (page ${pageNum}):`, imgErr.message);
       }
     }
   } catch (opsErr) {
@@ -1294,37 +1371,29 @@ paraPopupOverlay.addEventListener('click', closeParaPopup);
 
 // ===== API Calls =====
 async function ensureSettings() {
-  if (!state.translationProvider) {
+  if (!state._settingsLoaded) {
     await new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(['openaiApiKey', 'openaiModel', 'translationProvider'], (data) => {
-          state.apiKey = data.openaiApiKey || '';
+        const keyStorage = chrome.storage.session || chrome.storage.local;
+        let done = 0;
+        const check = () => { if (++done === 2) { state._settingsLoaded = true; resolve(); } };
+        chrome.storage.local.get(['openaiModel', 'translationProvider'], (data) => {
           state.model = data.openaiModel || DEFAULT_MODEL;
           state.translationProvider = data.translationProvider || 'chatgpt';
-          resolve();
+          check();
         });
-      } else {
-        resolve();
-      }
-    });
-  } else if (!state.apiKey) {
-    await new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(['openaiApiKey', 'openaiModel'], (data) => {
+        keyStorage.get(['openaiApiKey'], (data) => {
           state.apiKey = data.openaiApiKey || '';
-          state.model = data.openaiModel || DEFAULT_MODEL;
-          resolve();
+          check();
         });
       } else {
+        state._settingsLoaded = true;
         resolve();
       }
     });
   }
   return state.translationProvider !== 'chatgpt' || !!state.apiKey;
 }
-
-// Backward-compatible alias
-const ensureApiKey = ensureSettings;
 
 // ===== Google Translate Provider =====
 async function googleTranslate(text, from, to) {
@@ -1708,6 +1777,13 @@ window.translateSentence = translateSentence;
 window.speakSentence = speakSentence;
 
 // ===== Word Definition =====
+function clearPosTag() {
+  const oldPosTag = defEnglish.querySelector('.pos-tag');
+  if (oldPosTag) oldPosTag.remove();
+  const oldSpacer = defEnglish.querySelector('.pos-spacer');
+  if (oldSpacer) oldSpacer.remove();
+}
+
 function showWordPopup(word, sentenceContext, event) {
   closeWordPopup();
   popupWord.textContent = word;
@@ -1719,10 +1795,7 @@ function showWordPopup(word, sentenceContext, event) {
   toggleChinese.textContent = 'Show Chinese Definition';
   defPronunciation.textContent = '';
   defPronunciation.style.display = 'none';
-  const oldPosTag = defEnglish.querySelector('.pos-tag');
-  if (oldPosTag) oldPosTag.remove();
-  const oldSpacer = defEnglish.querySelector('.pos-spacer');
-  if (oldSpacer) oldSpacer.remove();
+  clearPosTag();
 
   const x = Math.min(event.clientX, window.innerWidth - 360);
   const y = event.clientY > window.innerHeight / 2
@@ -1778,8 +1851,12 @@ PRON: [IPA pronunciation]`
 
   if (token !== _lookupToken) return;
 
-  if (!result && state.translationProvider === 'offline') {
-    defLoading.textContent = `"${word}" not found in offline dictionary`;
+  if (!result) {
+    if (state.translationProvider === 'offline') {
+      defLoading.textContent = `"${word}" not found in offline dictionary`;
+    } else {
+      defLoading.textContent = defLoading.textContent || `"${word}" lookup failed`;
+    }
     defLoading.style.display = 'block';
     return;
   }
@@ -1794,10 +1871,7 @@ PRON: [IPA pronunciation]`
     if (enMatch) {
       const enRaw = enMatch[1].trim();
       const posMatch = enRaw.match(/^\(([^)]+)\)\s*/);
-      const oldPosTag = defEnglish.querySelector('.pos-tag');
-      if (oldPosTag) oldPosTag.remove();
-      const oldSpacer = defEnglish.querySelector('.pos-spacer');
-      if (oldSpacer) oldSpacer.remove();
+      clearPosTag();
       if (posMatch) {
         const posSpan = document.createElement('strong');
         posSpan.className = 'pos-tag';
@@ -2144,6 +2218,16 @@ function renderNotes() {
   });
 }
 
+function downloadMarkdown(filename, content) {
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function exportNotes() {
   const bookNotes = state.notes.filter(n => n.book === state.fileName);
   if (bookNotes.length === 0) return;
@@ -2151,13 +2235,7 @@ function exportNotes() {
   const content = `# Reading Notes: ${state.fileName}\n\n` +
     bookNotes.map(n => `- ${n.text}\n  _(${n.date})_`).join('\n\n');
 
-  const blob = new Blob([content], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `notes-${state.fileName.replace(/\.[^.]+$/, '')}.md`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadMarkdown(`notes-${state.fileName.replace(/\.[^.]+$/, '')}.md`, content);
 }
 
 function escapeHtml(str) {
@@ -2294,13 +2372,7 @@ function exportWordList() {
   }
 
   const content = lines.join('\n');
-  const blob = new Blob([content], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `wordlist-${state.fileName.replace(/\.[^.]+$/, '')}.md`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadMarkdown(`wordlist-${state.fileName.replace(/\.[^.]+$/, '')}.md`, content);
 }
 
 window.exportWordList = exportWordList;
@@ -2614,13 +2686,6 @@ document.addEventListener('mousemove', (e) => {
     startAutoHideTimer();
   }
 });
-
-// Start auto-hide timer when entering reading mode
-const origHandleFile = handleFile;
-handleFile = async function(file) {
-  await origHandleFile(file);
-  startAutoHideTimer();
-};
 
 // Also start when DOMContentLoaded fires and reader is already active
 document.addEventListener('DOMContentLoaded', () => {

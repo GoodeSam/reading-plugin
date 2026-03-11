@@ -136,10 +136,13 @@ describe('popup.js', () => {
     });
   });
 
-  test('shows status message after save', () => {
+  test('shows status message after save', async () => {
     jest.useFakeTimers();
     ({ dom, win, chrome } = buildPopupDOM());
     win.document.getElementById('saveBtn').click();
+    // Wait for async Promise.all to resolve
+    await Promise.resolve();
+    await Promise.resolve();
     const status = win.document.getElementById('status');
     expect(status.style.display).toBe('block');
     jest.advanceTimersByTime(2000);

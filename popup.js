@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     storage.get([key], (data) => {
       if (chrome.runtime.lastError) {
         console.error(`Failed to load ${key}:`, chrome.runtime.lastError.message);
-      } else if (data[key]) {
+      } else if (Object.prototype.hasOwnProperty.call(data, key)) {
         onValue(data[key]);
       }
     });
@@ -41,40 +41,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
   providerSelect.addEventListener('change', updateChatgptVisibility);
 
-  saveBtn.addEventListener('click', () => {
-    let saveCount = 0;
-    const totalSaves = 3;
-    let saveError = false;
+  function saveTo(storage, payload, label) {
+    return new Promise((resolve) => {
+      storage.set(payload, () => {
+        if (chrome.runtime.lastError) {
+          console.error(`Failed to save ${label}:`, chrome.runtime.lastError.message);
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      });
+    });
+  }
 
-    function onSaved() {
-      saveCount++;
-      if (saveCount === totalSaves && !saveError) {
-        status.style.display = 'block';
-        setTimeout(() => status.style.display = 'none', STATUS_HIDE_MS);
-      }
+  saveBtn.addEventListener('click', async () => {
+    const results = await Promise.all([
+      saveTo(chrome.storage.local, { translationProvider: providerSelect.value }, 'provider'),
+      saveTo(keyStorage, { openaiApiKey: apiKeyInput.value.trim() }, 'API key'),
+      saveTo(chrome.storage.local, { openaiModel: modelSelect.value }, 'model'),
+    ]);
+
+    if (results.every(Boolean)) {
+      status.textContent = 'Settings saved!';
+      status.style.color = '#10b981';
+    } else {
+      status.textContent = 'Some settings failed to save';
+      status.style.color = '#ef4444';
     }
-
-    chrome.storage.local.set({ translationProvider: providerSelect.value }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('Failed to save provider:', chrome.runtime.lastError.message);
-        saveError = true;
-      }
-      onSaved();
-    });
-    keyStorage.set({ openaiApiKey: apiKeyInput.value.trim() }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('Failed to save API key:', chrome.runtime.lastError.message);
-        saveError = true;
-      }
-      onSaved();
-    });
-    chrome.storage.local.set({ openaiModel: modelSelect.value }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('Failed to save model:', chrome.runtime.lastError.message);
-        saveError = true;
-      }
-      onSaved();
-    });
+    status.style.display = 'block';
+    setTimeout(() => status.style.display = 'none', STATUS_HIDE_MS);
   });
 
   openBtn.addEventListener('click', () => {
