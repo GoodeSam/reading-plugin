@@ -372,47 +372,51 @@ function bindNavigationEvents() {
     }
   });
 
-  // Swipe-to-navigate: single-finger vertical swipe for page navigation
-  let swipeStartY = null;
-  let swipeStartX = null;
-  let swipeTouchId = null;
+  // Two-phase scroll-based page navigation.
+  // Phase 1: scrolling hits a boundary → record that boundary was reached.
+  // Phase 2: user scrolls again in the same direction at that boundary → navigate.
+  // State resets when scrolling away from boundary or changing direction.
+  const SCROLL_EDGE_TOLERANCE = 40;
+  const WHEEL_NAV_COOLDOWN = 500;
+  const GESTURE_GAP = 300;
+  let lastWheelNav = 0;
+  let boundaryReached = null; // null | 'top' | 'bottom'
+  let lastBoundaryWheelAt = 0;  // timestamp of most recent boundary wheel event
 
-  readerContent.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      swipeStartY = touch.clientY;
-      swipeStartX = touch.clientX;
-      swipeTouchId = touch.identifier;
-    } else {
-      swipeStartY = null;
-      swipeStartX = null;
-      swipeTouchId = null;
-    }
-  });
+  readerContent.addEventListener('wheel', (e) => {
+    const now = Date.now();
+    if (now - lastWheelNav < WHEEL_NAV_COOLDOWN) return;
 
-  readerContent.addEventListener('touchend', (e) => {
-    if (swipeStartY === null) return;
-    const touch = Array.from(e.changedTouches).find(t => t.identifier === swipeTouchId);
-    if (!touch) return;
+    const atBottom = readerContent.scrollTop + readerContent.clientHeight
+                     >= readerContent.scrollHeight - SCROLL_EDGE_TOLERANCE;
+    const atTop = readerContent.scrollTop <= SCROLL_EDGE_TOLERANCE;
 
-    const deltaY = touch.clientY - swipeStartY;
-    const deltaX = touch.clientX - swipeStartX;
-    const SWIPE_THRESHOLD = 50;
-
-    // Must be predominantly vertical
-    if (Math.abs(deltaY) > SWIPE_THRESHOLD && Math.abs(deltaY) > Math.abs(deltaX)) {
-      if (deltaY < 0) {
-        // Swipe up → next page
+    if (atBottom && e.deltaY > 0) {
+      if (boundaryReached === 'bottom' && now - lastBoundaryWheelAt >= GESTURE_GAP) {
+        // Phase 2 — gap since last boundary event means this is a new gesture
         goToPage(state.currentPage + 1);
+        lastWheelNav = now;
+        boundaryReached = null;
       } else {
-        // Swipe down → previous page
-        goToPage(state.currentPage - 1);
+        // Phase 1, or continued momentum from same gesture
+        boundaryReached = 'bottom';
+        lastBoundaryWheelAt = now;
       }
+    } else if (atTop && e.deltaY < 0) {
+      if (boundaryReached === 'top' && now - lastBoundaryWheelAt >= GESTURE_GAP) {
+        // Phase 2 — gap since last boundary event means this is a new gesture
+        goToPage(state.currentPage - 1);
+        lastWheelNav = now;
+        boundaryReached = null;
+      } else {
+        // Phase 1, or continued momentum from same gesture
+        boundaryReached = 'top';
+        lastBoundaryWheelAt = now;
+      }
+    } else {
+      // Not at a matching boundary — reset
+      boundaryReached = null;
     }
-
-    swipeStartY = null;
-    swipeStartX = null;
-    swipeTouchId = null;
   });
 }
 
