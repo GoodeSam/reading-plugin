@@ -556,6 +556,18 @@ function handleReaderMouseOut(e) {
 function handleReaderClick(e) {
   if (window.getSelection().toString().trim().length > 0) return;
 
+  // Check for margin bar click (left border zone) on a paragraph
+  const paraEl = e.target.closest('.paragraph');
+  if (paraEl) {
+    const rect = paraEl.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    if (offsetX <= 6) {
+      e.stopPropagation();
+      openParaPopup(paraEl);
+      return;
+    }
+  }
+
   const wordEl = e.target.closest('.word');
   if (wordEl) {
     e.stopPropagation();
@@ -588,11 +600,6 @@ function handleReaderTouch(e) {
     openSentencePanel(sentenceEl);
     window.translateSentence();
     window.speakSentence();
-  } else if (touchCount === 3) {
-    const paraEl = e.target.closest('.paragraph');
-    if (!paraEl) return;
-    e.preventDefault();
-    openParaPopup(paraEl);
   }
 }
 

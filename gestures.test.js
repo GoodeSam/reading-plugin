@@ -4,8 +4,8 @@
  * Behaviour:
  *  - Two-finger tap on a sentence: opens the sentence panel and
  *    auto-triggers translation and pronunciation (TTS).
- *  - Three-finger tap on a paragraph: shows a paragraph translation popup
- *    with the full paragraph text and its translation.
+ *  - Clicking the left margin bar of a paragraph: shows a paragraph
+ *    translation popup with the full paragraph text and its translation.
  *  - Paragraph popup can be closed with its close button.
  *  - Gestures only work in reading mode on reader content.
  */
@@ -92,6 +92,38 @@ function fireTouchStart(win, target, touchCount) {
   return ev;
 }
 
+/**
+ * Simulate a click on the left margin bar of a paragraph element.
+ * The margin bar is the border-left region; a click at offsetX <= bar width
+ * (6px) and within the paragraph's padding zone triggers paragraph translation.
+ */
+function clickMarginBar(win, paraEl) {
+  const rect = paraEl.getBoundingClientRect();
+  const ev = new win.MouseEvent('click', {
+    bubbles: true,
+    cancelable: true,
+    clientX: rect.left + 2,  // inside the 6px margin bar
+    clientY: rect.top + rect.height / 2,
+  });
+  paraEl.dispatchEvent(ev);
+  return ev;
+}
+
+/**
+ * Simulate a click in the content area of a paragraph (not the margin bar).
+ */
+function clickParagraphContent(win, paraEl) {
+  const rect = paraEl.getBoundingClientRect();
+  const ev = new win.MouseEvent('click', {
+    bubbles: true,
+    cancelable: true,
+    clientX: rect.left + 50, // well past the margin bar
+    clientY: rect.top + rect.height / 2,
+  });
+  paraEl.dispatchEvent(ev);
+  return ev;
+}
+
 // --------------- tests ---------------
 
 let dom, doc, win;
@@ -168,26 +200,32 @@ describe('two-finger gesture — sentence translate and pronounce', () => {
 });
 
 // ============================================================
-// Three-finger gesture → paragraph translation popup
+// Margin bar click → paragraph translation popup
 // ============================================================
-describe('three-finger gesture — paragraph translation popup', () => {
+describe('margin bar click — paragraph translation popup', () => {
 
   test('paragraph popup element exists in the DOM', () => {
     expect(doc.getElementById('paraPopup')).toBeTruthy();
   });
 
-  test('three-finger tap on a paragraph shows the paragraph popup', () => {
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+  test('margin bar is 6px wide', () => {
+    const css = fs.readFileSync(path.join(__dirname, 'reader.css'), 'utf-8');
+    const match = css.match(/\.paragraph\s*\{[^}]*border-left:\s*(\d+)px/);
+    expect(match).toBeTruthy();
+    expect(match[1]).toBe('6');
+  });
+
+  test('clicking margin bar on a paragraph shows the paragraph popup', () => {
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
     const popup = doc.getElementById('paraPopup');
     expect(popup.classList.contains('active')).toBe(true);
   });
 
   test('popup displays the full paragraph text', () => {
-    // Tap on the first paragraph (which has two sentences)
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
     const paraText = doc.getElementById('paraPopupText');
     expect(paraText.textContent).toContain('The sun rose slowly.');
@@ -201,24 +239,23 @@ describe('three-finger gesture — paragraph translation popup', () => {
       return 'Translated paragraph text.';
     };
 
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
-    // translateMsg should have been called
     expect(translateMsg).toBeTruthy();
   });
 
-  test('three-finger tap outside a paragraph does nothing', () => {
-    const readerContent = doc.getElementById('readerContent');
-    fireTouchStart(win, readerContent, 3);
+  test('clicking paragraph content area does NOT trigger paragraph popup', () => {
+    const paraEl = doc.querySelector('.paragraph');
+    clickParagraphContent(win, paraEl);
 
     const popup = doc.getElementById('paraPopup');
     expect(popup.classList.contains('active')).toBe(false);
   });
 
   test('close button hides the paragraph popup', () => {
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
     const popup = doc.getElementById('paraPopup');
     expect(popup.classList.contains('active')).toBe(true);
@@ -228,23 +265,16 @@ describe('three-finger gesture — paragraph translation popup', () => {
   });
 
   test('clicking the overlay hides the paragraph popup', () => {
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
     doc.getElementById('paraPopupOverlay').click();
     expect(doc.getElementById('paraPopup').classList.contains('active')).toBe(false);
   });
 
-  test('single-finger touch does NOT trigger paragraph popup', () => {
+  test('three-finger touch does NOT trigger paragraph popup', () => {
     const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 1);
-
-    expect(doc.getElementById('paraPopup').classList.contains('active')).toBe(false);
-  });
-
-  test('two-finger touch does NOT trigger paragraph popup', () => {
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 2);
+    fireTouchStart(win, sentenceEl, 3);
 
     expect(doc.getElementById('paraPopup').classList.contains('active')).toBe(false);
   });
@@ -259,8 +289,8 @@ describe('paragraph popup — translation display', () => {
     // Use a stub that never resolves immediately
     win._stubCallOpenAI = () => new Promise(() => {});
 
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
     const result = doc.getElementById('paraPopupTranslation');
     expect(result.textContent).toContain('Translating');
@@ -270,8 +300,8 @@ describe('paragraph popup — translation display', () => {
     jest.useRealTimers();
     win._stubCallOpenAI = async () => '\u592a\u9633\u6162\u6162\u5347\u8d77\u3002\u9e1f\u513f\u5f00\u59cb\u5531\u6b4c\u3002';
 
-    const sentenceEl = doc.querySelector('.sentence');
-    fireTouchStart(win, sentenceEl, 3);
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
 
     // Flush microtask queue for the promise .then() chain to complete
     await new Promise(r => process.nextTick(r));
