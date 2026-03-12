@@ -27,11 +27,11 @@
   <div id="readerScreen" class="screen">
     <!-- Top Bar -->
     <div class="top-bar">
-      <button class="icon-btn" id="backBtn" title="Back to upload">&#8592;</button>
+      <button class="icon-btn" id="backBtn" title="Back to upload" aria-label="Back to upload">&#8592;</button>
       <span class="book-title" id="bookTitle">Untitled</span>
       <div class="top-bar-actions">
-        <button class="icon-btn" id="searchToggle" title="Search (Ctrl+F)">&#128269;</button>
-        <button class="icon-btn bookmark-btn" id="bookmarkBtn" title="Bookmark this position">&#9734;</button>
+        <button class="icon-btn" id="searchToggle" title="Search (Ctrl+F)" aria-label="Search">&#128269;</button>
+        <button class="icon-btn bookmark-btn" id="bookmarkBtn" title="Bookmark this position" aria-label="Bookmark">&#9734;</button>
         <div class="font-size-control">
           <button class="icon-btn" id="fontDecrease" title="Decrease font size">A-</button>
           <span class="font-size-label" id="fontSizeLabel">18</span>
@@ -48,7 +48,7 @@
           <button class="theme-swatch active" data-theme="brown" title="Sepia" style="background:#f5f0e8"></button>
           <button class="theme-swatch" data-theme="green" title="Green" style="background:#e8f5e9"></button>
         </div>
-        <button class="icon-btn" id="helpBtn" title="Feature Guide">?</button>
+        <button class="icon-btn" id="helpBtn" title="Feature Guide" aria-label="Feature Guide">?</button>
         <span class="page-info" id="pageInfo">Page 1</span>
       </div>
     </div>
@@ -57,9 +57,9 @@
     <div class="search-bar" id="searchBar">
       <input type="text" id="searchInput" placeholder="Search in book..." autocomplete="off">
       <span class="search-count" id="searchCount"></span>
-      <button class="icon-btn search-nav-btn" id="searchPrev" title="Previous match">&#8593;</button>
-      <button class="icon-btn search-nav-btn" id="searchNext" title="Next match">&#8595;</button>
-      <button class="icon-btn" id="searchClose" title="Close search">&times;</button>
+      <button class="icon-btn search-nav-btn" id="searchPrev" title="Previous match" aria-label="Previous match">&#8593;</button>
+      <button class="icon-btn search-nav-btn" id="searchNext" title="Next match" aria-label="Next match">&#8595;</button>
+      <button class="icon-btn" id="searchClose" title="Close search" aria-label="Close search">&times;</button>
     </div>
 
     <!-- Main Content -->
@@ -80,7 +80,7 @@
   <div class="sentence-panel" id="sentencePanel">
     <div class="panel-header">
       <span class="panel-title">Sentence</span>
-      <button class="icon-btn panel-close" id="panelClose">&times;</button>
+      <button class="icon-btn panel-close" id="panelClose" aria-label="Close sentence panel">&times;</button>
     </div>
     <div class="panel-body">
       <div class="panel-sentence" id="panelSentence"></div>
@@ -100,8 +100,8 @@
   <div class="word-popup" id="wordPopup">
     <div class="word-popup-header">
       <span class="word-popup-word" id="popupWord"></span>
-      <button class="icon-btn btn-pronounce" id="btnPronounce" title="Pronounce">&#128264;</button>
-      <button class="icon-btn word-popup-close" id="wordPopupClose">&times;</button>
+      <button class="icon-btn btn-pronounce" id="btnPronounce" title="Pronounce" aria-label="Pronounce word">&#128264;</button>
+      <button class="icon-btn word-popup-close" id="wordPopupClose" aria-label="Close word popup">&times;</button>
     </div>
     <div class="def-pronunciation" id="defPronunciation" style="display:none"></div>
     <div class="word-popup-body">
@@ -127,41 +127,41 @@
   <div class="notes-panel" id="notesPanel">
     <div class="notes-header">
       <span>My Notes</span>
-      <button class="icon-btn" id="notesClose">&times;</button>
+      <button class="icon-btn" id="notesClose" aria-label="Close notes panel">&times;</button>
     </div>
     <div class="notes-list" id="notesList"></div>
     <button class="btn btn-sm notes-export" id="notesExport">Export Notes</button>
   </div>
-  <button class="notes-toggle" id="notesToggle" title="My Notes">&#128221;</button>
+  <button class="notes-toggle" id="notesToggle" title="My Notes" aria-label="My Notes">&#128221;</button>
 
   <!-- History Panel -->
   <div class="history-panel" id="historyPanel">
     <div class="history-header">
       <span>Reading History</span>
-      <button class="icon-btn" id="historyClose">&times;</button>
+      <button class="icon-btn" id="historyClose" aria-label="Close history panel">&times;</button>
     </div>
     <div class="history-list" id="historyList"></div>
     <button class="btn btn-sm history-clear" id="historyClear">Clear History</button>
   </div>
-  <button class="history-toggle" id="historyToggle" title="Reading History">&#128337;</button>
+  <button class="history-toggle" id="historyToggle" title="Reading History" aria-label="Reading History">&#128337;</button>
 
   <!-- Word List Panel -->
   <div class="wordlist-panel" id="wordListPanel">
     <div class="wordlist-header">
       <span>Word List</span>
-      <button class="icon-btn" id="wordListClose">&times;</button>
+      <button class="icon-btn" id="wordListClose" aria-label="Close word list panel">&times;</button>
     </div>
     <div class="wordlist-entries" id="wordListEntries"></div>
     <button class="btn btn-sm wordlist-export" id="wordListExport">Export Word List</button>
   </div>
-  <button class="wordlist-toggle" id="wordListToggle" title="Word List">Aa</button>
+  <button class="wordlist-toggle" id="wordListToggle" title="Word List" aria-label="Word List">Aa</button>
 
   <!-- Paragraph Translation Popup -->
   <div class="para-popup-overlay" id="paraPopupOverlay"></div>
   <div class="para-popup" id="paraPopup">
     <div class="para-popup-header">
       <span class="panel-title">Paragraph Translation</span>
-      <button class="icon-btn panel-close" id="paraPopupClose">&times;</button>
+      <button class="icon-btn panel-close" id="paraPopupClose" aria-label="Close paragraph translation">&times;</button>
     </div>
     <div class="para-popup-body">
       <div class="para-popup-text" id="paraPopupText"></div>
@@ -174,7 +174,7 @@
     <div class="guide-inner">
       <div class="guide-header">
         <span class="guide-title">Feature Guide</span>
-        <button class="icon-btn" id="featureGuideClose">&times;</button>
+        <button class="icon-btn" id="featureGuideClose" aria-label="Close feature guide">&times;</button>
       </div>
       <div class="guide-body" id="featureGuideBody"></div>
     </div>

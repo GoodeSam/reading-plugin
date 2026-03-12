@@ -208,6 +208,53 @@ describe('translation provider — Google word lookup', () => {
     expect(result).toContain('EN:');
     expect(result).toContain('CN:');
   });
+
+  test('supplements Google result with IPA from offline dictionary', async () => {
+    jest.useRealTimers();
+    win._readerState.translationProvider = 'google';
+
+    // Inject offline dict with IPA for "happy"
+    win._offlineDict = [
+      { word: 'happy', pos: 'adj.', def: 'feeling pleasure', cn: '快乐的', pron: '/ˈhæpi/' }
+    ];
+
+    win.fetch = async (url) => {
+      return {
+        ok: true,
+        json: async () => {
+          const resp = [
+            [['快乐的', 'happy']],
+            [['adjective', ['快乐的', '高兴的'],
+              [['happy', ['快乐的', '高兴的'], null, 0.5]], 'adjective']]
+          ];
+          while (resp.length < 13) resp.push(null);
+          resp[12] = [['adjective', [['feeling or showing pleasure']]]];
+          return resp;
+        }
+      };
+    };
+
+    const result = await win.googleLookupWord('happy');
+    expect(result).toContain('PRON:');
+    expect(result).toContain('/ˈhæpi/');
+  });
+
+  test('Google result has no PRON when word not in offline dict', async () => {
+    jest.useRealTimers();
+    win._readerState.translationProvider = 'google';
+
+    win._offlineDict = [];
+
+    win.fetch = async (url) => {
+      return {
+        ok: true,
+        json: async () => [[['奇妙的', 'serendipitous']]]
+      };
+    };
+
+    const result = await win.googleLookupWord('serendipitous');
+    expect(result).not.toContain('PRON:');
+  });
 });
 
 // ============================================================
@@ -255,6 +302,37 @@ describe('translation provider — Microsoft word lookup', () => {
     expect(result).toContain('enormous');
     expect(result).toContain('CN:');
     expect(result).toContain('巨大的');
+  });
+
+  test('supplements Microsoft result with IPA from offline dictionary', async () => {
+    jest.useRealTimers();
+    win._readerState.translationProvider = 'microsoft';
+
+    win._offlineDict = [
+      { word: 'enormous', pos: 'adj.', def: 'very large', cn: '巨大的', pron: '/ɪˈnɔːrməs/' }
+    ];
+
+    win.fetch = async (url, opts) => {
+      if (url.includes('edge.microsoft.com')) {
+        return { ok: true, text: async () => 'mock-jwt' };
+      }
+      if (url.includes('dictionary/lookup')) {
+        return {
+          ok: true,
+          json: async () => [{
+            translations: [{
+              posTag: 'ADJ', displayTarget: '巨大的',
+              backTranslations: [{ displayText: 'enormous' }]
+            }]
+          }]
+        };
+      }
+      return { ok: true, json: async () => [{ translations: [{ text: '巨大的' }] }] };
+    };
+
+    const result = await win.microsoftLookupWord('enormous');
+    expect(result).toContain('PRON:');
+    expect(result).toContain('/ɪˈnɔːrməs/');
   });
 });
 

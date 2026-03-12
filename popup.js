@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const STATUS_HIDE_MS = 2000;
   const keyStorage = chrome.storage.session || chrome.storage.local;
+  let statusTimer = null;
 
   function getStorageValue(storage, key, onValue) {
     storage.get([key], (data) => {
@@ -55,11 +56,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   saveBtn.addEventListener('click', async () => {
-    const results = await Promise.all([
+    const saves = [
       saveTo(chrome.storage.local, { translationProvider: providerSelect.value }, 'provider'),
-      saveTo(keyStorage, { openaiApiKey: apiKeyInput.value.trim() }, 'API key'),
       saveTo(chrome.storage.local, { openaiModel: modelSelect.value }, 'model'),
-    ]);
+    ];
+    // Only save API key when chatgpt provider is selected
+    if (providerSelect.value === 'chatgpt') {
+      saves.push(saveTo(keyStorage, { openaiApiKey: apiKeyInput.value.trim() }, 'API key'));
+    }
+    const results = await Promise.all(saves);
 
     if (results.every(Boolean)) {
       status.textContent = 'Settings saved!';
@@ -69,7 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
       status.style.color = '#ef4444';
     }
     status.style.display = 'block';
-    setTimeout(() => status.style.display = 'none', STATUS_HIDE_MS);
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => status.style.display = 'none', STATUS_HIDE_MS);
   });
 
   openBtn.addEventListener('click', () => {

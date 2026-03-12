@@ -108,14 +108,21 @@ describe('popup.js', () => {
     expect(settings.classList.contains('hidden')).toBe(false);
   });
 
-  test('save button stores API key in session storage', () => {
-    ({ dom, win, chrome } = buildPopupDOM());
+  test('save button stores API key in session storage when chatgpt selected', () => {
+    ({ dom, win, chrome } = buildPopupDOM({}, { translationProvider: 'chatgpt' }));
     win.document.getElementById('apiKey').value = 'sk-test-key';
     win.document.getElementById('saveBtn').click();
     expect(chrome.storage.session.set).toHaveBeenCalledWith(
       { openaiApiKey: 'sk-test-key' },
       expect.any(Function)
     );
+  });
+
+  test('save button does not store API key when non-chatgpt provider selected', () => {
+    ({ dom, win, chrome } = buildPopupDOM({}, { translationProvider: 'google' }));
+    win.document.getElementById('apiKey').value = 'sk-test-key';
+    win.document.getElementById('saveBtn').click();
+    expect(chrome.storage.session.set).not.toHaveBeenCalled();
   });
 
   test('save button stores model in local storage', () => {

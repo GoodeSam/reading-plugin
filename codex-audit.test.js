@@ -267,9 +267,19 @@ describe('Chinese quoted dialogue sentence splitting', () => {
 // ============================================================
 describe('normalizeImagePath with special URLs', () => {
 
-  test('does not corrupt https:// URLs', () => {
+  test('blocks https:// URLs for security', () => {
     expect(win.normalizeImagePath('https://example.com/img.png'))
-      .toBe('https://example.com/img.png');
+      .toBe('');
+  });
+
+  test('blocks http:// URLs for security', () => {
+    expect(win.normalizeImagePath('http://example.com/img.png'))
+      .toBe('');
+  });
+
+  test('blocks javascript: URLs for security', () => {
+    expect(win.normalizeImagePath('javascript:alert(1)'))
+      .toBe('');
   });
 
   test('does not corrupt data: URLs', () => {

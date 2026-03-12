@@ -122,7 +122,10 @@ const widthLabel = $('#widthLabel');
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', init);
 
+let _initialized = false;
 function init() {
+  if (_initialized) return;
+  _initialized = true;
   loadSettings();
   loadNotes();
   loadFontSize();
@@ -133,7 +136,10 @@ function init() {
 
 function loadFontSize() {
   const saved = localStorage.getItem('reader-font-size');
-  if (saved) state.fontSize = parseInt(saved, 10);
+  if (saved) {
+    const parsed = parseInt(saved, 10);
+    if (Number.isFinite(parsed)) state.fontSize = Math.min(32, Math.max(12, parsed));
+  }
   applyFontSize();
 }
 
@@ -150,7 +156,10 @@ function changeFontSize(delta) {
 
 function loadContentWidth() {
   const saved = localStorage.getItem('reader-content-width');
-  if (saved) state.contentWidth = parseInt(saved, 10);
+  if (saved) {
+    const parsed = parseInt(saved, 10);
+    if (Number.isFinite(parsed)) state.contentWidth = Math.min(1600, Math.max(500, parsed));
+  }
   applyContentWidth();
 }
 
@@ -216,9 +225,17 @@ function loadSettings() {
   if (typeof chrome !== 'undefined' && chrome.storage) {
     const keyStorage = chrome.storage.session || chrome.storage.local;
     keyStorage.get(['openaiApiKey'], (data) => {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+        console.error('Failed to load API key:', chrome.runtime.lastError.message);
+        return;
+      }
       state.apiKey = data.openaiApiKey || '';
     });
     chrome.storage.local.get(['openaiModel', 'translationProvider'], (data) => {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+        console.error('Failed to load settings:', chrome.runtime.lastError.message);
+        return;
+      }
       state.model = data.openaiModel || DEFAULT_MODEL;
       state.translationProvider = data.translationProvider || 'chatgpt';
       state._settingsLoaded = true;
@@ -284,11 +301,12 @@ function updateBookmarkIcon() {
 
 function restoreBookmark() {
   const bm = loadBookmark();
-  if (bm && bm.page < state.totalPages) {
+  if (bm && Number.isInteger(bm.page) && bm.page >= 0 && bm.page < state.totalPages) {
     goToPage(bm.page, false);
     // Restore scroll after render
+    const scrollTop = Number.isFinite(bm.scrollTop) ? bm.scrollTop : 0;
     requestAnimationFrame(() => {
-      readerContent.scrollTop = bm.scrollTop;
+      readerContent.scrollTop = scrollTop;
     });
     return true;
   }
@@ -344,6 +362,57 @@ function bindNavigationEvents() {
     }
     if (e.key === 'ArrowLeft') goToPage(state.currentPage - 1);
     if (e.key === 'ArrowRight') goToPage(state.currentPage + 1);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      readerContent.scrollTop += 80;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      readerContent.scrollTop -= 80;
+    }
+  });
+
+  // Swipe-to-navigate: single-finger vertical swipe for page navigation
+  let swipeStartY = null;
+  let swipeStartX = null;
+  let swipeTouchId = null;
+
+  readerContent.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      swipeStartY = touch.clientY;
+      swipeStartX = touch.clientX;
+      swipeTouchId = touch.identifier;
+    } else {
+      swipeStartY = null;
+      swipeStartX = null;
+      swipeTouchId = null;
+    }
+  });
+
+  readerContent.addEventListener('touchend', (e) => {
+    if (swipeStartY === null) return;
+    const touch = Array.from(e.changedTouches).find(t => t.identifier === swipeTouchId);
+    if (!touch) return;
+
+    const deltaY = touch.clientY - swipeStartY;
+    const deltaX = touch.clientX - swipeStartX;
+    const SWIPE_THRESHOLD = 50;
+
+    // Must be predominantly vertical
+    if (Math.abs(deltaY) > SWIPE_THRESHOLD && Math.abs(deltaY) > Math.abs(deltaX)) {
+      if (deltaY < 0) {
+        // Swipe up → next page
+        goToPage(state.currentPage + 1);
+      } else {
+        // Swipe down → previous page
+        goToPage(state.currentPage - 1);
+      }
+    }
+
+    swipeStartY = null;
+    swipeStartX = null;
+    swipeTouchId = null;
   });
 }
 
@@ -353,9 +422,13 @@ function bindPanelEvents() {
   btnTranslate.addEventListener('click', translateSentence);
   btnTTS.addEventListener('click', speakSentence);
   btnCopy.addEventListener('click', () => {
-    navigator.clipboard.writeText(panelSentence.textContent);
-    btnCopy.textContent = '\u2713 Copied';
-    setTimeout(() => btnCopy.textContent = '\ud83d\udccb Copy', 1500);
+    navigator.clipboard.writeText(panelSentence.textContent).then(() => {
+      btnCopy.textContent = '\u2713 Copied';
+      setTimeout(() => btnCopy.textContent = '\ud83d\udccb Copy', 1500);
+    }).catch(() => {
+      btnCopy.textContent = '\u2717 Failed';
+      setTimeout(() => btnCopy.textContent = '\ud83d\udccb Copy', 1500);
+    });
   });
 
   wordPopupClose.addEventListener('click', closeWordPopup);
@@ -379,7 +452,7 @@ function bindPanelEvents() {
 
   selCopy.addEventListener('click', () => {
     const sel = window.getSelection().toString();
-    navigator.clipboard.writeText(sel);
+    navigator.clipboard.writeText(sel).catch(() => {});
     hideSelectionToolbar();
   });
   selNote.addEventListener('click', () => {
@@ -814,14 +887,12 @@ async function parsePDF(file) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const contentItems = [];
-  let hasImages = false;
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
 
     const pageImages = await extractPDFPageImages(page, i);
-    if (pageImages.length > 0) hasImages = true;
 
     const structuredLines = buildStructuredLines(content.items);
     if (structuredLines.length === 0 && pageImages.length === 0) continue;
@@ -1007,8 +1078,12 @@ function splitHtmlOnBr(container) {
 
 // ===== Path Utilities =====
 function normalizeImagePath(filepath) {
-  // Don't touch protocol URLs (https://, data:, blob:) or absolute paths
-  if (/^[a-z][a-z0-9+.-]*:/i.test(filepath)) return filepath;
+  // Reject dangerous URL schemes — only allow data: and blob: for EPUB assets
+  if (/^[a-z][a-z0-9+.-]*:/i.test(filepath)) {
+    if (/^(data|blob):/i.test(filepath)) return filepath;
+    // Block http:, https:, javascript:, and other remote/dangerous schemes
+    return '';
+  }
   if (filepath.startsWith('/')) {
     // Absolute path — normalize but preserve leading /
     const parts = filepath.split('/');
@@ -1359,12 +1434,16 @@ function closeSentencePanel() {
 }
 
 // ===== Paragraph Translation Popup =====
+let _paraPopupToken = 0;
+
 function openParaPopup(paraEl) {
   const text = paraEl.textContent.trim();
   paraPopupText.textContent = text;
   paraPopupTranslation.textContent = 'Translating...';
   paraPopupOverlay.classList.add('active');
   paraPopup.classList.add('active');
+
+  const token = ++_paraPopupToken;
 
   // Auto-trigger translation
   const stubTranslate = window._stubTranslateText || window._stubCallOpenAI;
@@ -1373,12 +1452,14 @@ function openParaPopup(paraEl) {
     : translateText(text, 'en', 'zh');
   if (promise && promise.then) {
     promise.then((result) => {
+      if (token !== _paraPopupToken) return;
       if (result) {
         paraPopupTranslation.textContent = result;
       } else {
         paraPopupTranslation.textContent = 'Translation unavailable.';
       }
     }).catch((err) => {
+      if (token !== _paraPopupToken) return;
       paraPopupTranslation.textContent = 'Translation failed: ' + err.message;
     });
   } else {
@@ -1403,12 +1484,16 @@ async function ensureSettings() {
         let done = 0;
         const check = () => { if (++done === 2) { state._settingsLoaded = true; resolve(); } };
         chrome.storage.local.get(['openaiModel', 'translationProvider'], (data) => {
-          state.model = data.openaiModel || DEFAULT_MODEL;
-          state.translationProvider = data.translationProvider || 'chatgpt';
+          if (!(chrome.runtime && chrome.runtime.lastError)) {
+            state.model = data.openaiModel || DEFAULT_MODEL;
+            state.translationProvider = data.translationProvider || 'chatgpt';
+          }
           check();
         });
         keyStorage.get(['openaiApiKey'], (data) => {
-          state.apiKey = data.openaiApiKey || '';
+          if (!(chrome.runtime && chrome.runtime.lastError)) {
+            state.apiKey = data.openaiApiKey || '';
+          }
           check();
         });
       } else {
@@ -1483,6 +1568,11 @@ async function googleLookupWord(word) {
   if (data[0] && data[0].length > 1 && data[0][data[0].length - 1]) {
     const lastSeg = data[0][data[0].length - 1];
     if (typeof lastSeg === 'string') pron = lastSeg;
+  }
+
+  // Supplement with IPA from offline dictionary if no pronunciation found
+  if (!pron) {
+    pron = await getOfflinePronunciation(word);
   }
 
   // Abbreviate POS
@@ -1566,16 +1656,35 @@ async function microsoftLookupWord(word) {
     PRON: 'pron.', PREP: 'prep.', CONJ: 'conj.', DET: 'det.', OTHER: '' };
   const posShort = posAbbrev[pos] || (pos ? pos.toLowerCase() + '.' : '');
 
+  // Supplement with IPA from offline dictionary
+  const pron = await getOfflinePronunciation(word);
+
   const enLine = posShort ? `(${posShort}) ${enDef || word}` : (enDef || word);
-  return `EN: ${enLine}\nCN: ${cnDef || word}`;
+  return `EN: ${enLine}\nCN: ${cnDef || word}\n${pron ? 'PRON: ' + pron : ''}`.trim();
 }
 
 // ===== Offline Dictionary =====
+async function getOfflinePronunciation(word) {
+  try {
+    const dict = await loadOfflineDict();
+    const dictMap = getOfflineDictMap(dict);
+    const entry = dictMap.get(word.toLowerCase());
+    return (entry && entry.pron) ? entry.pron : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+window.getOfflinePronunciation = getOfflinePronunciation;
+
+let _offlineDictMap = null;
+
 async function loadOfflineDict() {
   if (state.offlineDict) return state.offlineDict;
   // Allow test injection
   if (window._offlineDict) {
     state.offlineDict = window._offlineDict;
+    _offlineDictMap = null; // rebuild map on next lookup
     return state.offlineDict;
   }
   try {
@@ -1587,15 +1696,27 @@ async function loadOfflineDict() {
   } catch (e) {
     state.offlineDict = [];
   }
+  _offlineDictMap = null; // rebuild map on next lookup
   return state.offlineDict;
+}
+
+function getOfflineDictMap(dict) {
+  if (!_offlineDictMap) {
+    _offlineDictMap = new Map();
+    for (const e of dict) {
+      _offlineDictMap.set(e.word.toLowerCase(), e);
+    }
+  }
+  return _offlineDictMap;
 }
 
 async function offlineLookupWord(word) {
   const dict = await loadOfflineDict();
   const lower = word.toLowerCase();
 
-  // Search bundled dictionary first
-  const entry = dict.find(e => e.word.toLowerCase() === lower);
+  // Search bundled dictionary first (O(1) via Map)
+  const dictMap = getOfflineDictMap(dict);
+  const entry = dictMap.get(lower);
   if (entry) {
     return `EN: (${entry.pos}) ${entry.def}\nCN: ${entry.cn}\nPRON: ${entry.pron}`;
   }
@@ -1607,12 +1728,32 @@ async function offlineLookupWord(word) {
     if (cachedEntry) {
       return `EN: ${cachedEntry.englishDef}\nCN: ${cachedEntry.chineseDef}\nPRON: ${cachedEntry.pronunciation}`;
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn('Malformed cached word list, ignoring:', e.message);
+  }
 
   return null;
 }
 
 window.offlineLookupWord = offlineLookupWord;
+
+function buildDictPrompt(word, sentenceContext) {
+  return [
+    {
+      role: 'system',
+      content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
+1. The word's part of speech and English definition as used in this context (1-2 concise lines).
+2. The Chinese definition (1 line).
+3. The IPA pronunciation (1 line).
+
+Format your response exactly as:
+EN: [part of speech] [English definition]
+CN: [Chinese definition]
+PRON: [IPA pronunciation]`
+    },
+    { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
+  ];
+}
 
 // ===== Translation Dispatch =====
 async function translateText(text, from, to) {
@@ -1653,21 +1794,7 @@ async function lookupWordByProvider(word, sentenceContext) {
     }
     // chatgpt - use the full prompt
     const apiCall = window._stubCallOpenAI || ((msgs, onErr) => callOpenAI(msgs, onErr));
-    return await apiCall([
-      {
-        role: 'system',
-        content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
-1. The word's part of speech and English definition as used in this context (1-2 concise lines).
-2. The Chinese definition (1 line).
-3. The IPA pronunciation (1 line).
-
-Format your response exactly as:
-EN: [part of speech] [English definition]
-CN: [Chinese definition]
-PRON: [IPA pronunciation]`
-      },
-      { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
-    ], null);
+    return await apiCall(buildDictPrompt(word, sentenceContext), null);
   } catch (err) {
     // Network unavailable — try offline dictionary as fallback
     const offlineResult = await offlineLookupWord(word);
@@ -1852,21 +1979,7 @@ async function lookupWord(word, sentenceContext) {
   let result;
   try {
     if (window._stubCallOpenAI) {
-      result = await window._stubCallOpenAI([
-        {
-          role: 'system',
-          content: `You are a dictionary assistant. Given an English word and the sentence it appears in, provide:
-1. The word's part of speech and English definition as used in this context (1-2 concise lines).
-2. The Chinese definition (1 line).
-3. The IPA pronunciation (1 line).
-
-Format your response exactly as:
-EN: [part of speech] [English definition]
-CN: [Chinese definition]
-PRON: [IPA pronunciation]`
-        },
-        { role: 'user', content: `Word: "${word}"\nSentence: "${sentenceContext}"` }
-      ]);
+      result = await window._stubCallOpenAI(buildDictPrompt(word, sentenceContext));
     } else {
       result = await lookupWordByProvider(word, sentenceContext);
     }
@@ -2565,7 +2678,7 @@ const FEATURE_REGISTRY = [
     name: 'Bookmarks',
     icon: '\u2606',
     description: 'Bookmark your current reading position for quick access later.',
-    usage: 'Click the star icon in the top bar to bookmark the current page. Click again to remove the bookmark.'
+    usage: 'Click the star icon in the top bar to bookmark the current page. Long-press the star to remove the bookmark.'
   },
   {
     name: 'Notes',

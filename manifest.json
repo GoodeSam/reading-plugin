@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "English Reader",
   "version": "1.0.0",
-  "description": "Read English PDFs and EPUBs with sentence-by-sentence translation, TTS, and word definitions powered by ChatGPT API.",
+  "description": "Read English PDFs and EPUBs with sentence-by-sentence translation, TTS, and word definitions. Supports Google, Microsoft, ChatGPT, and offline providers.",
   "permissions": ["storage"],
   "action": {
     "default_popup": "popup.html",
@@ -20,7 +20,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["reader.html", "lib/*", "dict-en.json"],
+      "resources": ["dict-en.json"],
       "matches": ["chrome-extension://*/*"]
     }
   ]
