@@ -561,3 +561,258 @@ describe('paragraph popup — direct mode', () => {
     expect(translation.style.display).not.toBe('none');
   });
 });
+
+// ============================================================
+// Grammar analysis for sentences
+// ============================================================
+describe('sentence grammar analysis', () => {
+
+  test('grammar button exists in the sentence panel', () => {
+    expect(doc.getElementById('btnGrammar')).toBeTruthy();
+  });
+
+  test('grammar result area exists but is hidden by default', () => {
+    const grammarResult = doc.getElementById('panelGrammar');
+    expect(grammarResult).toBeTruthy();
+
+    // Open sentence panel
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    expect(grammarResult.style.display).toBe('none');
+  });
+
+  test('clicking grammar button shows loading state', () => {
+    win._stubGrammarAnalysis = () => new Promise(() => {});
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    doc.getElementById('btnGrammar').click();
+
+    const btn = doc.getElementById('btnGrammar');
+    expect(btn.textContent).toContain('Analyzing');
+    expect(btn.disabled).toBe(true);
+  });
+
+  test('grammar analysis result is displayed after completion', async () => {
+    jest.useRealTimers();
+    const mockResult = '**Sentence Structure**: S + V + Adv\n**Tense**: Past simple';
+    win._stubGrammarAnalysis = async () => mockResult;
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    doc.getElementById('btnGrammar').click();
+
+    await new Promise(r => process.nextTick(r));
+
+    const grammarResult = doc.getElementById('panelGrammar');
+    expect(grammarResult.style.display).toBe('block');
+    expect(doc.getElementById('grammarText').textContent).toContain('Sentence Structure');
+  });
+
+  test('grammar button resets after analysis completes', async () => {
+    jest.useRealTimers();
+    win._stubGrammarAnalysis = async () => 'Grammar result';
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    doc.getElementById('btnGrammar').click();
+    await new Promise(r => process.nextTick(r));
+
+    const btn = doc.getElementById('btnGrammar');
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).not.toContain('Analyzing');
+  });
+
+  test('opening a new sentence hides previous grammar result', () => {
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    // Simulate grammar result visible
+    doc.getElementById('panelGrammar').style.display = 'block';
+    doc.getElementById('grammarText').textContent = 'Previous result';
+
+    // Open another sentence
+    const sentences = doc.querySelectorAll('.sentence');
+    fireTouchStart(win, sentences[1], 2);
+
+    expect(doc.getElementById('panelGrammar').style.display).toBe('none');
+    expect(doc.getElementById('grammarText').textContent).toBe('');
+  });
+
+  test('grammar analysis handles errors gracefully', async () => {
+    jest.useRealTimers();
+    win._stubGrammarAnalysis = async () => { throw new Error('API failed'); };
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    doc.getElementById('btnGrammar').click();
+    await new Promise(r => process.nextTick(r));
+
+    const btn = doc.getElementById('btnGrammar');
+    expect(btn.disabled).toBe(false);
+  });
+});
+
+// ===== File Format Support =====
+describe('File format support', () => {
+  let doc, win;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    ({ doc, win } = buildDOM());
+    // Provide JSZip in the window context for DOCX parsing
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    win.JSZip = JSZipModule.default || JSZipModule;
+    loadReaderJS(win);
+    enterReadingMode(doc, win);
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  test('file input accepts .docx, .doc, and .txt in addition to .pdf and .epub', () => {
+    const html = fs.readFileSync(path.join(__dirname, 'reader.html'), 'utf-8');
+    expect(html).toMatch(/accept="[^"]*\.docx/);
+    expect(html).toMatch(/accept="[^"]*\.txt/);
+    // .doc is intentionally excluded (unsupported legacy format)
+  });
+
+  test('drop zone text mentions supported formats', () => {
+    const html = fs.readFileSync(path.join(__dirname, 'reader.html'), 'utf-8');
+    expect(html).toMatch(/TXT/i);
+    expect(html).toMatch(/DOCX/i);
+  });
+
+  test('parseTXT reads file as plain text', async () => {
+    jest.useRealTimers();
+    const content = 'Hello world.\n\nSecond paragraph.';
+    const blob = new win.Blob([content], { type: 'text/plain' });
+    // Polyfill text() for jsdom Blob
+    blob.text = async () => content;
+
+    const result = await win.parseTXT(blob);
+    expect(result).toBe(content);
+  });
+
+  test('parseDOCX extracts text from document.xml', async () => {
+    jest.useRealTimers();
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    // jszip.min.js may export differently; try common patterns
+    const JSZip = JSZipModule.default || JSZipModule;
+
+    const docXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>First paragraph.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Second paragraph.</w:t></w:r></w:p>
+  </w:body>
+</w:document>`;
+
+    const zip = new JSZip();
+    zip.file('word/document.xml', docXml);
+    const arrayBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+
+    const blob = new win.Blob([arrayBuffer]);
+    blob.arrayBuffer = async () => arrayBuffer;
+
+    const result = await win.parseDOCX(blob);
+    expect(result).toContain('First paragraph.');
+    expect(result).toContain('Second paragraph.');
+  });
+
+  test('parseDOCX handles multiple runs in a paragraph', async () => {
+    jest.useRealTimers();
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    const JSZip = JSZipModule.default || JSZipModule;
+
+    const docXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r><w:t>Hello </w:t></w:r>
+      <w:r><w:t>world.</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>`;
+
+    const zip = new JSZip();
+    zip.file('word/document.xml', docXml);
+    const arrayBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+
+    const blob = new win.Blob([arrayBuffer]);
+    blob.arrayBuffer = async () => arrayBuffer;
+
+    const result = await win.parseDOCX(blob);
+    expect(result).toContain('Hello world.');
+  });
+
+  test('handleFile routes .txt files correctly', async () => {
+    jest.useRealTimers();
+    const content = 'A simple sentence. Another one.\n\nNew paragraph here.';
+    const file = new win.Blob([content], { type: 'text/plain' });
+    file.name = 'test.txt';
+    file.text = async () => content;
+
+    await win.handleFile(file);
+
+    expect(win._readerState.totalPages).toBeGreaterThan(0);
+    expect(doc.getElementById('bookTitle').textContent).toBe('test');
+  });
+
+  test('handleFile routes .docx files correctly', async () => {
+    jest.useRealTimers();
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    const JSZip = JSZipModule.default || JSZipModule;
+
+    const docXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Test document content.</w:t></w:r></w:p>
+  </w:body>
+</w:document>`;
+
+    const zip = new JSZip();
+    zip.file('word/document.xml', docXml);
+    const arrayBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+
+    const file = new win.Blob([arrayBuffer]);
+    file.name = 'test.docx';
+    file.arrayBuffer = async () => arrayBuffer;
+
+    await win.handleFile(file);
+
+    expect(win._readerState.totalPages).toBeGreaterThan(0);
+    expect(doc.getElementById('bookTitle').textContent).toBe('test');
+  });
+
+  test('handleFile rejects unsupported file types', async () => {
+    jest.useRealTimers();
+    let alertMsg = null;
+    // Override alert in the window context
+    const origAlert = win.alert;
+
+    const file = new win.Blob(['data']);
+    file.name = 'test.xyz';
+
+    // handleFile calls the alert passed during script loading (the no-op)
+    // We test that it returns without changing state
+    const prevPages = win._readerState.totalPages;
+    await win.handleFile(file);
+    expect(win._readerState.totalPages).toBe(prevPages);
+  });
+
+  test('.doc files show unsupported format message', async () => {
+    jest.useRealTimers();
+    const file = new win.Blob(['binary data']);
+    file.name = 'legacy.doc';
+
+    const prevPages = win._readerState.totalPages;
+    await win.handleFile(file);
+    // .doc is not supported, state should not change
+    expect(win._readerState.totalPages).toBe(prevPages);
+  });
+});

@@ -138,9 +138,10 @@ describe('popup.js', () => {
   test('open button creates new tab with reader URL', () => {
     ({ dom, win, chrome } = buildPopupDOM());
     win.document.getElementById('openBtn').click();
-    expect(chrome.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test/reader.html'
-    });
+    expect(chrome.tabs.create).toHaveBeenCalledWith(
+      { url: 'chrome-extension://test/reader.html' },
+      expect.any(Function)
+    );
   });
 
   test('shows status message after save', async () => {

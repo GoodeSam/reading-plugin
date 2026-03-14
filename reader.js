@@ -62,10 +62,13 @@ const sentencePanel = $('#sentencePanel');
 const panelClose = $('#panelClose');
 const panelSentence = $('#panelSentence');
 const btnTranslate = $('#btnTranslate');
+const btnGrammar = $('#btnGrammar');
 const btnTTS = $('#btnTTS');
 const btnCopy = $('#btnCopy');
 const panelTranslation = $('#panelTranslation');
 const translationText = $('#translationText');
+const panelGrammar = $('#panelGrammar');
+const grammarText = $('#grammarText');
 
 // Word popup
 const wordPopup = $('#wordPopup');
@@ -85,7 +88,6 @@ const paraPopup = $('#paraPopup');
 const paraPopupOverlay = $('#paraPopupOverlay');
 const paraPopupClose = $('#paraPopupClose');
 const paraPopupText = $('#paraPopupText');
-const paraPopupActions = $('#paraPopupActions');
 const paraTranslateBtn = $('#paraTranslateBtn');
 const paraTTSBtn = $('#paraTTSBtn');
 const paraCopyBtn = $('#paraCopyBtn');
@@ -141,6 +143,12 @@ function init() {
   loadContentWidth();
   loadTheme();
   bindEvents();
+  if (readerScreen.classList.contains('active')) {
+    startAutoHideTimer();
+    historyToggle.classList.add('visible');
+    notesToggle.classList.add('visible');
+    wordListToggle.classList.add('visible');
+  }
 }
 
 function loadFontSize() {
@@ -279,7 +287,6 @@ function saveBookmark() {
   const data = {
     page: state.currentPage,
     scrollTop: readerContent.scrollTop,
-    timestamp: Date.now(),
   };
   localStorage.setItem(getBookmarkKey(), JSON.stringify(data));
   updateBookmarkIcon();
@@ -429,19 +436,29 @@ function bindNavigationEvents() {
   });
 }
 
+function emptyStateHtml(message) {
+  return `<p class="empty-state-msg">${escapeHtml(message)}</p>`;
+}
+
+function copyWithFeedback(btn, text, originalLabel) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '\u2713 Copied';
+    setTimeout(() => btn.textContent = originalLabel, 1500);
+  }).catch((err) => {
+    console.error('Clipboard write failed:', err);
+    btn.textContent = '\u2717 Failed';
+    setTimeout(() => btn.textContent = originalLabel, 1500);
+  });
+}
+
 function bindPanelEvents() {
   panelClose.addEventListener('click', closeSentencePanel);
   panelOverlay.addEventListener('click', closeSentencePanel);
   btnTranslate.addEventListener('click', translateSentence);
+  btnGrammar.addEventListener('click', analyzeGrammar);
   btnTTS.addEventListener('click', speakSentence);
   btnCopy.addEventListener('click', () => {
-    navigator.clipboard.writeText(panelSentence.textContent).then(() => {
-      btnCopy.textContent = '\u2713 Copied';
-      setTimeout(() => btnCopy.textContent = '\ud83d\udccb Copy', 1500);
-    }).catch(() => {
-      btnCopy.textContent = '\u2717 Failed';
-      setTimeout(() => btnCopy.textContent = '\ud83d\udccb Copy', 1500);
-    });
+    copyWithFeedback(btnCopy, panelSentence.textContent, '\ud83d\udccb Copy');
   });
 
   wordPopupClose.addEventListener('click', closeWordPopup);
@@ -465,7 +482,7 @@ function bindPanelEvents() {
 
   selCopy.addEventListener('click', () => {
     const sel = window.getSelection().toString();
-    navigator.clipboard.writeText(sel).catch(() => {});
+    copyWithFeedback(selCopy, sel, '\ud83d\udccb Copy');
     hideSelectionToolbar();
   });
   selNote.addEventListener('click', () => {
@@ -662,13 +679,25 @@ async function handleFile(file) {
       text = await parsePDF(file);
     } else if (ext === 'epub') {
       text = await parseEPUB(file);
+    } else if (ext === 'txt') {
+      text = await parseTXT(file);
+    } else if (ext === 'docx') {
+      text = await parseDOCX(file);
+    } else if (ext === 'doc') {
+      alert('Legacy .doc format is not supported. Please convert to .docx first.');
+      return;
     } else {
-      alert('Please upload a PDF or EPUB file.');
+      alert('Unsupported file format. Please upload a PDF, EPUB, DOCX, or TXT file.');
       return;
     }
 
     const paragraphs = splitIntoParagraphs(text);
     paginateParagraphs(paragraphs);
+
+    if (state.totalPages === 0) {
+      alert('No readable content found in this file.');
+      return;
+    }
 
     bookTitle.textContent = file.name.replace(/\.[^.]+$/, '');
     uploadScreen.classList.remove('active');
@@ -1056,6 +1085,43 @@ async function parseEPUB(file) {
   return contentItems;
 }
 
+async function parseTXT(file) {
+  return await file.text();
+}
+
+window.parseTXT = parseTXT;
+
+async function parseDOCX(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const _JSZip = (typeof JSZip !== 'undefined') ? JSZip : window.JSZip;
+  const zip = await _JSZip.loadAsync(arrayBuffer);
+  const docXmlFile = zip.file('word/document.xml');
+  if (!docXmlFile) {
+    throw new Error('Invalid DOCX file: missing word/document.xml');
+  }
+  const xmlStr = await docXmlFile.async('string');
+  const _DOMParser = (typeof DOMParser !== 'undefined') ? DOMParser : window.DOMParser;
+  const parser = new _DOMParser();
+  const xmlDoc = parser.parseFromString(xmlStr, 'application/xml');
+
+  const ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const paragraphs = xmlDoc.getElementsByTagNameNS(ns, 'p');
+  const texts = [];
+  for (let i = 0; i < paragraphs.length; i++) {
+    const runs = paragraphs[i].getElementsByTagNameNS(ns, 't');
+    let paraText = '';
+    for (let j = 0; j < runs.length; j++) {
+      paraText += runs[j].textContent;
+    }
+    if (paraText.trim()) {
+      texts.push(paraText.trim());
+    }
+  }
+  return texts.join('\n\n');
+}
+
+window.parseDOCX = parseDOCX;
+
 // ===== EPUB Helpers =====
 function extractPartsWithBr(element) {
   // Split a block element's content on <br> tags into separate paragraphs
@@ -1255,6 +1321,7 @@ function splitIntoParagraphs(input) {
 }
 
 window.splitIntoParagraphs = splitIntoParagraphs;
+window.handleFile = handleFile;
 
 function paginateParagraphs(paragraphs) {
   state.pages = [];
@@ -1449,6 +1516,8 @@ function openSentencePanel(sentenceEl) {
   panelSentence.textContent = text;
   panelTranslation.style.display = 'none';
   translationText.textContent = '';
+  panelGrammar.style.display = 'none';
+  grammarText.textContent = '';
   btnCopy.textContent = '\ud83d\udccb Copy';
 
   panelOverlay.classList.add('active');
@@ -1530,13 +1599,7 @@ paraTTSBtn.addEventListener('click', async () => {
   paraTTSBtn.disabled = false;
 });
 paraCopyBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText(paraPopupText.textContent).then(() => {
-    paraCopyBtn.textContent = '\u2713 Copied';
-    setTimeout(() => paraCopyBtn.textContent = '\uD83D\uDCCB Copy', 1500);
-  }).catch(() => {
-    paraCopyBtn.textContent = '\u2717 Failed';
-    setTimeout(() => paraCopyBtn.textContent = '\uD83D\uDCCB Copy', 1500);
-  });
+  copyWithFeedback(paraCopyBtn, paraPopupText.textContent, '\uD83D\uDCCB Copy');
 });
 
 // ===== API Calls =====
@@ -1938,6 +2001,50 @@ async function translateSentence() {
   }
 }
 
+async function analyzeGrammar() {
+  const text = panelSentence.textContent;
+  const activeSentence = state.activeSentenceEl;
+  btnGrammar.textContent = '\u23f3 Analyzing...';
+  btnGrammar.disabled = true;
+
+  try {
+    let result;
+    if (window._stubGrammarAnalysis) {
+      result = await window._stubGrammarAnalysis(text);
+    } else {
+      result = await callOpenAI([
+        {
+          role: 'system',
+          content: `You are an English grammar analyst. Given a sentence, provide a clear and concise grammar analysis in Chinese. Include:
+
+1. **句子结构** (Sentence Structure): Identify the subject, predicate, object, and any modifiers (S + V + O pattern).
+2. **时态与语态** (Tense & Voice): What tense is used and whether it's active or passive.
+3. **从句分析** (Clause Analysis): Identify any subordinate clauses (adverbial, relative, noun clauses) and their function.
+4. **关键词性** (Key Parts of Speech): Label the part of speech for key words.
+5. **难点解析** (Difficulty Notes): Explain any tricky grammar points, idiomatic usage, or common learner mistakes.
+
+Format with clear labels. Be concise but thorough. Use Chinese for explanations.`
+        },
+        { role: 'user', content: text }
+      ]);
+    }
+
+    btnGrammar.textContent = '\ud83d\udd2c Grammar';
+    btnGrammar.disabled = false;
+
+    if (result && state.activeSentenceEl === activeSentence) {
+      grammarText.textContent = result;
+      panelGrammar.style.display = 'block';
+    }
+  } catch (err) {
+    btnGrammar.textContent = '\ud83d\udd2c Grammar';
+    btnGrammar.disabled = false;
+    console.error('Grammar analysis error:', err);
+  }
+}
+
+window.analyzeGrammar = analyzeGrammar;
+
 async function playTTS(text) {
   const resp = await window.fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
@@ -2013,7 +2120,7 @@ function showWordPopup(word, sentenceContext, event) {
   defPronunciation.style.display = 'none';
   clearPosTag();
 
-  const x = Math.min(event.clientX, window.innerWidth - 360);
+  const x = Math.max(0, Math.min(event.clientX, window.innerWidth - 360));
   const y = event.clientY > window.innerHeight / 2
     ? event.clientY - 20
     : event.clientY + 20;
@@ -2033,6 +2140,7 @@ function showWordPopup(word, sentenceContext, event) {
 
 function closeWordPopup() {
   wordPopup.classList.remove('active');
+  ++_lookupToken;
 }
 
 let _lookupToken = 0;
@@ -2066,9 +2174,13 @@ async function lookupWord(word, sentenceContext) {
   defLoading.style.display = 'none';
 
   if (result) {
-    const enMatch = result.match(/EN:\s*(.+)/);
-    const cnMatch = result.match(/CN:\s*(.+)/);
-    const pronMatch = result.match(/PRON:\s*(.+)/);
+    const lines = result.split('\n');
+    const enLine = lines.find(l => l.trim().startsWith('EN:'));
+    const cnLine = lines.find(l => l.trim().startsWith('CN:'));
+    const pronLine = lines.find(l => l.trim().startsWith('PRON:'));
+    const enMatch = enLine ? [null, enLine.replace(/^.*?EN:\s*/, '')] : null;
+    const cnMatch = cnLine ? [null, cnLine.replace(/^.*?CN:\s*/, '')] : null;
+    const pronMatch = pronLine ? [null, pronLine.replace(/^.*?PRON:\s*/, '')] : null;
 
     if (enMatch) {
       const enRaw = enMatch[1].trim();
@@ -2208,8 +2320,7 @@ function highlightSearchOnPage() {
   // Clear existing highlights first
   clearSearchHighlights();
 
-  const query = searchInput.value.trim().toLowerCase();
-  if (!query) return;
+  if (!searchInput.value.trim()) return;
 
   const matchesOnPage = state.searchMatches.filter(m => m.pageIndex === state.currentPage);
   if (matchesOnPage.length === 0) return;
@@ -2368,7 +2479,7 @@ function clearSearchHighlights() {
 
 // ===== Selection Toolbar =====
 function showSelectionToolbar(x, y) {
-  selectionToolbar.style.left = Math.min(x - 40, window.innerWidth - 160) + 'px';
+  selectionToolbar.style.left = Math.max(8, Math.min(x - 40, window.innerWidth - 160)) + 'px';
   selectionToolbar.style.top = (y - 45) + 'px';
   selectionToolbar.classList.add('active');
 }
@@ -2399,7 +2510,7 @@ function renderNotes() {
   const bookNotes = state.notes.filter(n => n.book === state.fileName);
 
   if (bookNotes.length === 0) {
-    notesList.innerHTML = '<p style="color:#999; font-size:13px; text-align:center; padding:20px; font-family:sans-serif;">No notes yet. Select text and click "Note" to add.</p>';
+    notesList.innerHTML = emptyStateHtml('No notes yet. Select text and click "Note" to add.');
     return;
   }
 
@@ -2409,14 +2520,17 @@ function renderNotes() {
     el.className = 'note-item';
     el.innerHTML = `
       <div>${escapeHtml(note.text)}</div>
-      <div style="font-size:11px;color:#999;margin-top:4px;">${escapeHtml(note.date)}</div>
+      <div class="note-date">${escapeHtml(note.date)}</div>
       <button class="note-delete" data-index="${realIndex}">&times;</button>
     `;
     notesList.appendChild(el);
   });
 
   notesList.querySelectorAll('.note-delete').forEach(btn => {
-    btn.addEventListener('click', () => deleteNote(parseInt(btn.dataset.index)));
+    btn.addEventListener('click', () => {
+      const i = Number.parseInt(btn.dataset.index, 10);
+      if (Number.isInteger(i) && i >= 0) deleteNote(i);
+    });
   });
 }
 
@@ -2505,7 +2619,7 @@ function renderWordList() {
     .sort((a, b) => b.queryCount - a.queryCount);
 
   if (bookWords.length === 0) {
-    wordListEntries.innerHTML = '<p style="color:#999; font-size:13px; text-align:center; padding:20px; font-family:sans-serif;">No words queried yet.</p>';
+    wordListEntries.innerHTML = emptyStateHtml('No words queried yet.');
     return;
   }
 
@@ -2645,7 +2759,7 @@ function renderHistory() {
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   if (fileHistory.length === 0) {
-    historyList.innerHTML = '<p style="color:#999; font-size:13px; text-align:center; padding:20px; font-family:sans-serif;">No reading history yet.</p>';
+    historyList.innerHTML = emptyStateHtml('No reading history yet.');
     return;
   }
 
@@ -2721,16 +2835,22 @@ const FEATURE_REGISTRY = [
     usage: 'Right-click or two-finger tap a sentence. The sentence panel opens — click "Translate" or it auto-translates on gesture.'
   },
   {
+    name: 'Grammar Analysis',
+    icon: '\ud83d\udd2c',
+    description: 'Analyze the grammar structure of any sentence, including parts of speech, tense, and clauses.',
+    usage: 'Open a sentence panel and click "Grammar" to see a detailed grammar breakdown in Chinese.'
+  },
+  {
     name: 'Paragraph Translation',
     icon: '\ud83d\udcc4',
-    description: 'Translate an entire paragraph at once with a three-finger tap.',
-    usage: 'Three-finger tap on any paragraph to open a popup showing the full paragraph and its Chinese translation.'
+    description: 'Translate an entire paragraph by clicking its left margin bar.',
+    usage: 'Click the left border of any paragraph to open a popup with the full text and translation options.'
   },
   {
     name: 'Text-to-Speech',
     icon: '\ud83d\udd0a',
     description: 'Listen to any sentence read aloud with natural pronunciation.',
-    usage: 'Open a sentence panel and click "Listen", or use a two-finger tap to auto-play pronunciation.'
+    usage: 'Open a sentence panel and click "Listen" to hear the sentence spoken aloud.'
   },
   {
     name: 'Search',
@@ -2899,12 +3019,4 @@ document.querySelector('.top-bar').addEventListener('touchstart', () => {
   startAutoHideTimer();
 });
 
-// Also start when DOMContentLoaded fires and reader is already active
-document.addEventListener('DOMContentLoaded', () => {
-  if (readerScreen.classList.contains('active')) {
-    startAutoHideTimer();
-    historyToggle.classList.add('visible');
-    notesToggle.classList.add('visible');
-    wordListToggle.classList.add('visible');
-  }
-});
+// Auto-hide and side toggles handled by init() via DOMContentLoaded

@@ -34,7 +34,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Load saved settings
   getStorageValue(chrome.storage.local, 'translationProvider', (val) => {
-    providerSelect.value = val;
+    const validOptions = Array.from(providerSelect.options).map(o => o.value);
+    if (validOptions.includes(val)) {
+      providerSelect.value = val;
+    }
     updateChatgptVisibility();
   });
   getStorageValue(keyStorage, 'openaiApiKey', (val) => { apiKeyInput.value = val; });
@@ -79,7 +82,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   openBtn.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('reader.html') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('reader.html') }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to open reader:', chrome.runtime.lastError.message);
+      }
+    });
   });
 
   // Initialize visibility

@@ -17,8 +17,8 @@
     <div class="upload-area" id="dropZone">
       <div class="upload-icon">&#128214;</div>
       <h2>English Reader</h2>
-      <p>Drop a PDF or EPUB file here, or click to browse</p>
-      <input type="file" id="fileInput" accept=".pdf,.epub" hidden>
+      <p>Drop a PDF, EPUB, DOCX, or TXT file here, or click to browse</p>
+      <input type="file" id="fileInput" accept=".pdf,.epub,.docx,.txt" hidden>
       <button class="btn btn-primary" id="browseBtn">Browse Files</button>
     </div>
   </div>
@@ -43,10 +43,10 @@
           <button class="icon-btn" id="widthIncrease" title="Wider">&#8614;</button>
         </div>
         <div class="theme-picker" id="themePicker">
-          <button class="theme-swatch" data-theme="white" title="White" style="background:#ffffff"></button>
-          <button class="theme-swatch" data-theme="black" title="Dark" style="background:#1a1a1a"></button>
-          <button class="theme-swatch active" data-theme="brown" title="Sepia" style="background:#f5f0e8"></button>
-          <button class="theme-swatch" data-theme="green" title="Green" style="background:#e8f5e9"></button>
+          <button class="theme-swatch" data-theme="white" title="White" aria-label="White theme" style="background:#ffffff"></button>
+          <button class="theme-swatch" data-theme="black" title="Dark" aria-label="Dark theme" style="background:#1a1a1a"></button>
+          <button class="theme-swatch active" data-theme="brown" title="Sepia" aria-label="Sepia theme" style="background:#f5f0e8"></button>
+          <button class="theme-swatch" data-theme="green" title="Green" aria-label="Green theme" style="background:#e8f5e9"></button>
         </div>
         <button class="icon-btn" id="gestureModeBtn" title="Gesture: menu mode" aria-label="Toggle gesture mode">&#9776;</button>
         <button class="icon-btn" id="helpBtn" title="Feature Guide" aria-label="Feature Guide">?</button>
@@ -87,12 +87,17 @@
       <div class="panel-sentence" id="panelSentence"></div>
       <div class="panel-actions">
         <button class="btn btn-sm" id="btnTranslate">&#127760; Translate</button>
+        <button class="btn btn-sm" id="btnGrammar">&#128300; Grammar</button>
         <button class="btn btn-sm" id="btnTTS">&#128264; Listen</button>
         <button class="btn btn-sm" id="btnCopy">&#128203; Copy</button>
       </div>
-      <div class="panel-result" id="panelTranslation" style="display:none">
+      <div class="panel-result hidden" id="panelTranslation">
         <div class="result-label">Translation</div>
         <div class="result-text" id="translationText"></div>
+      </div>
+      <div class="panel-result hidden" id="panelGrammar">
+        <div class="result-label">Grammar Analysis</div>
+        <div class="result-text grammar-text" id="grammarText"></div>
       </div>
     </div>
   </div>
@@ -104,7 +109,7 @@
       <button class="icon-btn btn-pronounce" id="btnPronounce" title="Pronounce" aria-label="Pronounce word">&#128264;</button>
       <button class="icon-btn word-popup-close" id="wordPopupClose" aria-label="Close word popup">&times;</button>
     </div>
-    <div class="def-pronunciation" id="defPronunciation" style="display:none"></div>
+    <div class="def-pronunciation hidden" id="defPronunciation"></div>
     <div class="word-popup-body">
       <div class="def-loading" id="defLoading">Looking up definition...</div>
       <div class="def-section" id="defEnglish" style="display:none">
@@ -125,37 +130,37 @@
   </div>
 
   <!-- Notes Panel -->
-  <div class="notes-panel" id="notesPanel">
-    <div class="notes-header">
+  <div class="side-panel notes-panel" id="notesPanel">
+    <div class="side-panel-header notes-header">
       <span>My Notes</span>
       <button class="icon-btn" id="notesClose" aria-label="Close notes panel">&times;</button>
     </div>
-    <div class="notes-list" id="notesList"></div>
-    <button class="btn btn-sm notes-export" id="notesExport">Export Notes</button>
+    <div class="side-panel-list notes-list" id="notesList"></div>
+    <button class="btn btn-sm side-panel-export notes-export" id="notesExport">Export Notes</button>
   </div>
-  <button class="notes-toggle" id="notesToggle" title="My Notes" aria-label="My Notes">&#128221;</button>
+  <button class="side-toggle notes-toggle" id="notesToggle" title="My Notes" aria-label="My Notes">&#128221;</button>
 
   <!-- History Panel -->
-  <div class="history-panel" id="historyPanel">
-    <div class="history-header">
+  <div class="side-panel history-panel" id="historyPanel">
+    <div class="side-panel-header history-header">
       <span>Reading History</span>
       <button class="icon-btn" id="historyClose" aria-label="Close history panel">&times;</button>
     </div>
-    <div class="history-list" id="historyList"></div>
-    <button class="btn btn-sm history-clear" id="historyClear">Clear History</button>
+    <div class="side-panel-list history-list" id="historyList"></div>
+    <button class="btn btn-sm side-panel-export history-clear" id="historyClear">Clear History</button>
   </div>
-  <button class="history-toggle" id="historyToggle" title="Reading History" aria-label="Reading History">&#128337;</button>
+  <button class="side-toggle history-toggle" id="historyToggle" title="Reading History" aria-label="Reading History">&#128337;</button>
 
   <!-- Word List Panel -->
-  <div class="wordlist-panel" id="wordListPanel">
-    <div class="wordlist-header">
+  <div class="side-panel wordlist-panel" id="wordListPanel">
+    <div class="side-panel-header wordlist-header">
       <span>Word List</span>
       <button class="icon-btn" id="wordListClose" aria-label="Close word list panel">&times;</button>
     </div>
-    <div class="wordlist-entries" id="wordListEntries"></div>
-    <button class="btn btn-sm wordlist-export" id="wordListExport">Export Word List</button>
+    <div class="side-panel-list wordlist-entries" id="wordListEntries"></div>
+    <button class="btn btn-sm side-panel-export wordlist-export" id="wordListExport">Export Word List</button>
   </div>
-  <button class="wordlist-toggle" id="wordListToggle" title="Word List" aria-label="Word List">Aa</button>
+  <button class="side-toggle wordlist-toggle" id="wordListToggle" title="Word List" aria-label="Word List">Aa</button>
 
   <!-- Paragraph Translation Popup -->
   <div class="para-popup-overlay" id="paraPopupOverlay"></div>
