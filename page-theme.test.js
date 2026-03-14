@@ -350,3 +350,41 @@ describe('paragraph background adapts to theme', () => {
     expect(para.style.background).toBe('rgb(35, 35, 35)');
   });
 });
+
+// ============================================================
+// Selection highlight contrast on dark backgrounds
+// ============================================================
+describe('selection highlight contrast', () => {
+
+  const css = fs.readFileSync(path.join(__dirname, 'reader.css'), 'utf-8');
+
+  test('dark theme has a distinct sentence active highlight', () => {
+    const match = css.match(/\[data-theme="black"\].*\.sentence\.active\s*\{[^}]*background:\s*(#[0-9a-fA-F]+)/s);
+    expect(match).toBeTruthy();
+    // Should NOT be the same as the light default (#fde68a)
+    expect(match[1]).not.toBe('#fde68a');
+  });
+
+  test('dark theme has a distinct sentence hover highlight', () => {
+    const match = css.match(/\[data-theme="black"\].*\.sentence\.hover-active\s*\{[^}]*background:\s*(#[0-9a-fA-F]+)/s);
+    expect(match).toBeTruthy();
+    expect(match[1]).not.toBe('#e8dcc8');
+  });
+
+  test('dark theme has a distinct word hover highlight', () => {
+    const match = css.match(/\[data-theme="black"\].*\.word\.hover-active\s*\{[^}]*background:\s*(#[0-9a-fA-F]+)/s);
+    expect(match).toBeTruthy();
+    expect(match[1]).not.toBe('#c7d2fe');
+  });
+
+  test('dark theme has a distinct search highlight', () => {
+    const match = css.match(/\[data-theme="black"\].*\.search-highlight\s*\{[^}]*background:\s*(#[0-9a-fA-F]+)/s);
+    expect(match).toBeTruthy();
+    expect(match[1]).not.toBe('#fde68a');
+  });
+
+  test('dark theme sentence active sets contrasting text color', () => {
+    const match = css.match(/\[data-theme="black"\].*\.sentence\.active\s*\{[^}]*color:\s*(#[0-9a-fA-F]+)/s);
+    expect(match).toBeTruthy();
+  });
+});

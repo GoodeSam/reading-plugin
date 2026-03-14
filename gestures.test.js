@@ -2,8 +2,11 @@
  * TDD tests for touchpad gesture handlers.
  *
  * Behaviour:
- *  - Two-finger tap on a sentence: opens the sentence panel and
- *    auto-triggers translation and pronunciation (TTS).
+ *  - Two-finger tap on a sentence in "menu" mode: opens the sentence panel
+ *    with translate, read aloud, and copy buttons (no auto-actions).
+ *  - Two-finger tap on a sentence in "direct" mode: opens the sentence panel,
+ *    auto-translates, and shows read aloud and copy as additional options.
+ *  - A settings button lets users toggle between the two gesture modes.
  *  - Clicking the left margin bar of a paragraph: shows a paragraph
  *    translation popup with the full paragraph text and its translation.
  *  - Paragraph popup can be closed with its close button.
@@ -142,11 +145,88 @@ afterEach(() => {
 });
 
 // ============================================================
-// Two-finger gesture → sentence translate + TTS
+// Gesture mode settings button
 // ============================================================
-describe('two-finger gesture — sentence translate and pronounce', () => {
+describe('gesture mode settings', () => {
 
-  test('two-finger tap on a sentence opens the sentence panel', () => {
+  test('gesture mode settings button exists in the DOM', () => {
+    expect(doc.getElementById('gestureModeBtn')).toBeTruthy();
+  });
+
+  test('default gesture mode is "menu"', () => {
+    expect(win._readerState.gestureMode).toBe('menu');
+  });
+
+  test('clicking the settings button toggles mode from menu to direct', () => {
+    doc.getElementById('gestureModeBtn').click();
+    expect(win._readerState.gestureMode).toBe('direct');
+  });
+
+  test('clicking twice toggles mode back to menu', () => {
+    doc.getElementById('gestureModeBtn').click();
+    doc.getElementById('gestureModeBtn').click();
+    expect(win._readerState.gestureMode).toBe('menu');
+  });
+
+  test('button label reflects current mode', () => {
+    const btn = doc.getElementById('gestureModeBtn');
+    // Default mode is menu — button shows indicator for menu mode
+    expect(btn.getAttribute('title')).toContain('menu');
+
+    btn.click();
+    expect(btn.getAttribute('title')).toContain('direct');
+  });
+
+  test('clicking the top bar resets auto-hide so buttons remain clickable', () => {
+    const topBar = doc.querySelector('.top-bar');
+    // Simulate auto-hide kicking in
+    topBar.classList.add('auto-hide');
+    expect(topBar.classList.contains('auto-hide')).toBe(true);
+
+    // A click on the top bar should remove auto-hide
+    topBar.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    expect(topBar.classList.contains('auto-hide')).toBe(false);
+  });
+
+  test('touching the top bar resets auto-hide on touch devices', () => {
+    const topBar = doc.querySelector('.top-bar');
+    topBar.classList.add('auto-hide');
+
+    const ev = new win.Event('touchstart', { bubbles: true, cancelable: true });
+    ev.touches = [{ identifier: 0, target: topBar, clientX: 100, clientY: 10 }];
+    topBar.dispatchEvent(ev);
+
+    expect(topBar.classList.contains('auto-hide')).toBe(false);
+  });
+
+  test('button text changes to reflect current mode after toggle', () => {
+    const btn = doc.getElementById('gestureModeBtn');
+    // Default: menu mode icon
+    expect(btn.textContent).toContain('\u2630');
+
+    btn.click();
+    // Direct mode icon
+    expect(btn.textContent).toContain('\u26A1');
+  });
+
+  test('button has active class in direct mode', () => {
+    const btn = doc.getElementById('gestureModeBtn');
+    expect(btn.classList.contains('gesture-mode-direct')).toBe(false);
+
+    btn.click();
+    expect(btn.classList.contains('gesture-mode-direct')).toBe(true);
+
+    btn.click();
+    expect(btn.classList.contains('gesture-mode-direct')).toBe(false);
+  });
+});
+
+// ============================================================
+// Two-finger gesture — Mode 1: menu (default)
+// ============================================================
+describe('two-finger gesture — menu mode (default)', () => {
+
+  test('two-finger tap opens the sentence panel', () => {
     const sentenceEl = doc.querySelector('.sentence');
     fireTouchStart(win, sentenceEl, 2);
 
@@ -161,25 +241,33 @@ describe('two-finger gesture — sentence translate and pronounce', () => {
     expect(doc.getElementById('panelSentence').textContent).toBe('The sun rose slowly.');
   });
 
-  test('two-finger tap auto-triggers translateSentence', () => {
-    // Stub translateSentence to track calls
+  test('menu mode does NOT auto-trigger translateSentence', () => {
     let translateCalled = false;
     win.translateSentence = () => { translateCalled = true; };
 
     const sentenceEl = doc.querySelector('.sentence');
     fireTouchStart(win, sentenceEl, 2);
 
-    expect(translateCalled).toBe(true);
+    expect(translateCalled).toBe(false);
   });
 
-  test('two-finger tap auto-triggers speakSentence', () => {
+  test('menu mode does NOT auto-trigger speakSentence', () => {
     let speakCalled = false;
     win.speakSentence = () => { speakCalled = true; };
 
     const sentenceEl = doc.querySelector('.sentence');
     fireTouchStart(win, sentenceEl, 2);
 
-    expect(speakCalled).toBe(true);
+    expect(speakCalled).toBe(false);
+  });
+
+  test('panel shows translate, listen, and copy buttons', () => {
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    expect(doc.getElementById('btnTranslate')).toBeTruthy();
+    expect(doc.getElementById('btnTTS')).toBeTruthy();
+    expect(doc.getElementById('btnCopy')).toBeTruthy();
   });
 
   test('two-finger tap outside a sentence does nothing', () => {
@@ -200,9 +288,111 @@ describe('two-finger gesture — sentence translate and pronounce', () => {
 });
 
 // ============================================================
-// Margin bar click → paragraph translation popup
+// Two-finger gesture — Mode 2: direct translation
 // ============================================================
-describe('margin bar click — paragraph translation popup', () => {
+describe('two-finger gesture — direct mode', () => {
+
+  beforeEach(() => {
+    // Switch to direct mode
+    setReaderState(win, { gestureMode: 'direct' });
+  });
+
+  test('two-finger tap opens the sentence panel', () => {
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    const panel = doc.getElementById('sentencePanel');
+    expect(panel.classList.contains('active')).toBe(true);
+  });
+
+  test('direct mode auto-triggers translateSentence', () => {
+    let translateCalled = false;
+    win.translateSentence = () => { translateCalled = true; };
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    expect(translateCalled).toBe(true);
+  });
+
+  test('direct mode does NOT auto-trigger speakSentence', () => {
+    let speakCalled = false;
+    win.speakSentence = () => { speakCalled = true; };
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    expect(speakCalled).toBe(false);
+  });
+
+  test('panel still shows listen and copy buttons', () => {
+    const sentenceEl = doc.querySelector('.sentence');
+    fireTouchStart(win, sentenceEl, 2);
+
+    expect(doc.getElementById('btnTTS')).toBeTruthy();
+    expect(doc.getElementById('btnCopy')).toBeTruthy();
+  });
+
+  test('two-finger tap outside a sentence does nothing', () => {
+    const readerContent = doc.getElementById('readerContent');
+    fireTouchStart(win, readerContent, 2);
+
+    const panel = doc.getElementById('sentencePanel');
+    expect(panel.classList.contains('active')).toBe(false);
+  });
+});
+
+// ============================================================
+// Right-click (context menu) sentence — respects gesture mode
+// ============================================================
+describe('right-click sentence — respects gesture mode', () => {
+
+  function fireContextMenu(win, target) {
+    const ev = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    target.dispatchEvent(ev);
+    return ev;
+  }
+
+  test('right-click on sentence opens sentence panel in menu mode', () => {
+    const sentenceEl = doc.querySelector('.sentence');
+    fireContextMenu(win, sentenceEl);
+
+    expect(doc.getElementById('sentencePanel').classList.contains('active')).toBe(true);
+  });
+
+  test('menu mode right-click does NOT auto-translate', () => {
+    let translateCalled = false;
+    win.translateSentence = () => { translateCalled = true; };
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireContextMenu(win, sentenceEl);
+
+    expect(translateCalled).toBe(false);
+  });
+
+  test('direct mode right-click auto-translates', () => {
+    setReaderState(win, { gestureMode: 'direct' });
+    let translateCalled = false;
+    win.translateSentence = () => { translateCalled = true; };
+
+    const sentenceEl = doc.querySelector('.sentence');
+    fireContextMenu(win, sentenceEl);
+
+    expect(translateCalled).toBe(true);
+  });
+
+  test('right-click outside a sentence does nothing', () => {
+    const readerContent = doc.getElementById('readerContent');
+    fireContextMenu(win, readerContent);
+
+    expect(doc.getElementById('sentencePanel').classList.contains('active')).toBe(false);
+  });
+});
+
+// ============================================================
+// Margin bar click → paragraph popup (shared behavior)
+// ============================================================
+describe('margin bar click — paragraph popup basics', () => {
 
   test('paragraph popup element exists in the DOM', () => {
     expect(doc.getElementById('paraPopup')).toBeTruthy();
@@ -230,19 +420,6 @@ describe('margin bar click — paragraph translation popup', () => {
     const paraText = doc.getElementById('paraPopupText');
     expect(paraText.textContent).toContain('The sun rose slowly.');
     expect(paraText.textContent).toContain('Birds began to sing their morning songs.');
-  });
-
-  test('popup auto-triggers paragraph translation', () => {
-    let translateMsg = null;
-    win._stubCallOpenAI = async (msgs) => {
-      translateMsg = msgs;
-      return 'Translated paragraph text.';
-    };
-
-    const paraEl = doc.querySelector('.paragraph');
-    clickMarginBar(win, paraEl);
-
-    expect(translateMsg).toBeTruthy();
   });
 
   test('clicking paragraph content area does NOT trigger paragraph popup', () => {
@@ -281,12 +458,69 @@ describe('margin bar click — paragraph translation popup', () => {
 });
 
 // ============================================================
-// Paragraph popup — translation result display
+// Paragraph popup — menu mode (default)
 // ============================================================
-describe('paragraph popup — translation display', () => {
+describe('paragraph popup — menu mode', () => {
 
-  test('shows loading state while translating', () => {
-    // Use a stub that never resolves immediately
+  test('menu mode does NOT auto-translate paragraph', () => {
+    let translateCalled = false;
+    win._stubCallOpenAI = async () => { translateCalled = true; return 'translated'; };
+
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    expect(translateCalled).toBe(false);
+  });
+
+  test('menu mode shows action buttons in paragraph popup', () => {
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    expect(doc.getElementById('paraTranslateBtn')).toBeTruthy();
+    expect(doc.getElementById('paraTTSBtn')).toBeTruthy();
+    expect(doc.getElementById('paraCopyBtn')).toBeTruthy();
+  });
+
+  test('translation area is hidden until translate button is clicked', () => {
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    const translation = doc.getElementById('paraPopupTranslation');
+    expect(translation.style.display).toBe('none');
+  });
+
+  test('clicking translate button triggers paragraph translation', () => {
+    let translateCalled = false;
+    win._stubCallOpenAI = async () => { translateCalled = true; return 'translated'; };
+
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    doc.getElementById('paraTranslateBtn').click();
+    expect(translateCalled).toBe(true);
+  });
+});
+
+// ============================================================
+// Paragraph popup — direct mode
+// ============================================================
+describe('paragraph popup — direct mode', () => {
+
+  beforeEach(() => {
+    setReaderState(win, { gestureMode: 'direct' });
+  });
+
+  test('direct mode auto-triggers paragraph translation', () => {
+    let translateCalled = false;
+    win._stubCallOpenAI = async () => { translateCalled = true; return 'translated'; };
+
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    expect(translateCalled).toBe(true);
+  });
+
+  test('direct mode shows loading state while translating', () => {
     win._stubCallOpenAI = () => new Promise(() => {});
 
     const paraEl = doc.querySelector('.paragraph');
@@ -296,17 +530,34 @@ describe('paragraph popup — translation display', () => {
     expect(result.textContent).toContain('Translating');
   });
 
-  test('displays translation result once resolved', async () => {
+  test('direct mode displays translation result once resolved', async () => {
     jest.useRealTimers();
     win._stubCallOpenAI = async () => '\u592a\u9633\u6162\u6162\u5347\u8d77\u3002\u9e1f\u513f\u5f00\u59cb\u5531\u6b4c\u3002';
 
     const paraEl = doc.querySelector('.paragraph');
     clickMarginBar(win, paraEl);
 
-    // Flush microtask queue for the promise .then() chain to complete
     await new Promise(r => process.nextTick(r));
 
     const result = doc.getElementById('paraPopupTranslation');
     expect(result.textContent).toContain('\u592a\u9633\u6162\u6162\u5347\u8d77');
+  });
+
+  test('direct mode still shows listen and copy buttons', () => {
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    expect(doc.getElementById('paraTTSBtn')).toBeTruthy();
+    expect(doc.getElementById('paraCopyBtn')).toBeTruthy();
+  });
+
+  test('translation area is visible in direct mode', () => {
+    win._stubCallOpenAI = () => new Promise(() => {});
+
+    const paraEl = doc.querySelector('.paragraph');
+    clickMarginBar(win, paraEl);
+
+    const translation = doc.getElementById('paraPopupTranslation');
+    expect(translation.style.display).not.toBe('none');
   });
 });

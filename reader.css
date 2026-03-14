@@ -56,6 +56,7 @@ body {
   color: #666; padding: 4px 8px; border-radius: 4px;
 }
 .icon-btn:hover { background: rgba(0,0,0,0.06); }
+.icon-btn.gesture-mode-direct { color: #4f46e5; background: rgba(79,70,229,0.1); }
 .icon-btn:focus-visible, .btn:focus-visible, .theme-swatch:focus-visible {
   outline: 2px solid #4f46e5;
   outline-offset: 2px;
@@ -231,6 +232,27 @@ body {
 .word.hover-active {
   background: #c7d2fe;
   text-decoration: underline;
+}
+
+/* Dark theme highlight overrides */
+[data-theme="black"] .sentence.active {
+  background: #854d0e;
+  color: #fef3c7;
+}
+[data-theme="black"] .sentence.hover-active {
+  background: #44403c;
+}
+[data-theme="black"] .word.hover-active {
+  background: #3730a3;
+  text-decoration: underline;
+}
+[data-theme="black"] .search-highlight {
+  background: #a16207;
+  color: #fef3c7;
+}
+[data-theme="black"] .search-highlight.current {
+  background: #ea580c;
+  color: #fff;
 }
 
 /* ===== Bottom Bar ===== */
@@ -683,6 +705,7 @@ body {
   padding-bottom: 16px;
   border-bottom: 1px solid #e5e7eb;
 }
+.para-popup-actions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .para-popup-translation {
   font-size: 15px;
   line-height: 1.7;

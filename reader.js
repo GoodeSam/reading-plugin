@@ -34,6 +34,8 @@ let state = {
   contentWidth: 800,
   // Theme
   theme: 'brown',
+  // Gesture mode: 'menu' (show action buttons) or 'direct' (auto-translate)
+  gestureMode: 'menu',
 };
 
 // Expose state for testing
@@ -83,7 +85,14 @@ const paraPopup = $('#paraPopup');
 const paraPopupOverlay = $('#paraPopupOverlay');
 const paraPopupClose = $('#paraPopupClose');
 const paraPopupText = $('#paraPopupText');
+const paraPopupActions = $('#paraPopupActions');
+const paraTranslateBtn = $('#paraTranslateBtn');
+const paraTTSBtn = $('#paraTTSBtn');
+const paraCopyBtn = $('#paraCopyBtn');
 const paraPopupTranslation = $('#paraPopupTranslation');
+
+// Gesture mode button
+const gestureModeBtn = $('#gestureModeBtn');
 
 // Selection toolbar
 const selectionToolbar = $('#selectionToolbar');
@@ -526,6 +535,13 @@ function bindToolbarEvents() {
   fontIncrease.addEventListener('click', () => changeFontSize(2));
   widthDecrease.addEventListener('click', () => changeContentWidth(-100));
   widthIncrease.addEventListener('click', () => changeContentWidth(100));
+
+  gestureModeBtn.addEventListener('click', () => {
+    state.gestureMode = state.gestureMode === 'menu' ? 'direct' : 'menu';
+    gestureModeBtn.setAttribute('title', 'Gesture: ' + state.gestureMode + ' mode');
+    gestureModeBtn.textContent = state.gestureMode === 'direct' ? '\u26A1' : '\u2630';
+    gestureModeBtn.classList.toggle('gesture-mode-direct', state.gestureMode === 'direct');
+  });
 }
 
 function handleReaderHover(e) {
@@ -587,6 +603,9 @@ function handleReaderContextMenu(e) {
   if (sentenceEl) {
     e.preventDefault();
     openSentencePanel(sentenceEl);
+    if (state.gestureMode === 'direct') {
+      window.translateSentence();
+    }
   }
 }
 
@@ -598,8 +617,9 @@ function handleReaderTouch(e) {
     if (!sentenceEl) return;
     e.preventDefault();
     openSentencePanel(sentenceEl);
-    window.translateSentence();
-    window.speakSentence();
+    if (state.gestureMode === 'direct') {
+      window.translateSentence();
+    }
   }
 }
 
@@ -1447,16 +1467,13 @@ function closeSentencePanel() {
 // ===== Paragraph Translation Popup =====
 let _paraPopupToken = 0;
 
-function openParaPopup(paraEl) {
-  const text = paraEl.textContent.trim();
-  paraPopupText.textContent = text;
+function translateParaPopup() {
+  const text = paraPopupText.textContent;
+  paraPopupTranslation.style.display = '';
   paraPopupTranslation.textContent = 'Translating...';
-  paraPopupOverlay.classList.add('active');
-  paraPopup.classList.add('active');
 
   const token = ++_paraPopupToken;
 
-  // Auto-trigger translation
   const stubTranslate = window._stubTranslateText || window._stubCallOpenAI;
   const promise = stubTranslate
     ? stubTranslate(text)
@@ -1478,6 +1495,21 @@ function openParaPopup(paraEl) {
   }
 }
 
+function openParaPopup(paraEl) {
+  const text = paraEl.textContent.trim();
+  paraPopupText.textContent = text;
+  paraPopupOverlay.classList.add('active');
+  paraPopup.classList.add('active');
+
+  if (state.gestureMode === 'direct') {
+    paraPopupTranslation.style.display = '';
+    translateParaPopup();
+  } else {
+    paraPopupTranslation.style.display = 'none';
+    paraPopupTranslation.textContent = '';
+  }
+}
+
 function closeParaPopup() {
   paraPopupOverlay.classList.remove('active');
   paraPopup.classList.remove('active');
@@ -1485,6 +1517,27 @@ function closeParaPopup() {
 
 paraPopupClose.addEventListener('click', closeParaPopup);
 paraPopupOverlay.addEventListener('click', closeParaPopup);
+paraTranslateBtn.addEventListener('click', translateParaPopup);
+paraTTSBtn.addEventListener('click', async () => {
+  const text = paraPopupText.textContent;
+  paraTTSBtn.textContent = '\u23F3 Loading...';
+  paraTTSBtn.disabled = true;
+  try {
+    await ensureSettings();
+    if (state.apiKey) await playTTS(text);
+  } catch (err) { console.error('TTS error:', err); }
+  paraTTSBtn.textContent = '\uD83D\uDD0A Listen';
+  paraTTSBtn.disabled = false;
+});
+paraCopyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(paraPopupText.textContent).then(() => {
+    paraCopyBtn.textContent = '\u2713 Copied';
+    setTimeout(() => paraCopyBtn.textContent = '\uD83D\uDCCB Copy', 1500);
+  }).catch(() => {
+    paraCopyBtn.textContent = '\u2717 Failed';
+    setTimeout(() => paraCopyBtn.textContent = '\uD83D\uDCCB Copy', 1500);
+  });
+});
 
 // ===== API Calls =====
 async function ensureSettings() {
@@ -2834,6 +2887,16 @@ document.addEventListener('mousemove', (e) => {
     showBars();
     startAutoHideTimer();
   }
+});
+
+// Clicking or touching the top bar resets auto-hide so buttons remain interactive
+document.querySelector('.top-bar').addEventListener('click', () => {
+  showBars();
+  startAutoHideTimer();
+});
+document.querySelector('.top-bar').addEventListener('touchstart', () => {
+  showBars();
+  startAutoHideTimer();
 });
 
 // Also start when DOMContentLoaded fires and reader is already active
