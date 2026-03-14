@@ -692,6 +692,27 @@ body {
   font-family: -apple-system, sans-serif;
 }
 .guide-body { padding: 16px 24px 24px; }
+.guide-lang-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  justify-content: flex-end;
+}
+.guide-lang-btn {
+  padding: 4px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.guide-lang-btn.active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
 .guide-card {
   display: flex;
   gap: 14px;

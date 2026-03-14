@@ -815,4 +815,214 @@ describe('File format support', () => {
     // .doc is not supported, state should not change
     expect(win._readerState.totalPages).toBe(prevPages);
   });
+
+  test('file input accepts image formats', () => {
+    const html = fs.readFileSync(path.join(__dirname, 'reader.html'), 'utf-8');
+    expect(html).toMatch(/accept="[^"]*\.png/);
+    expect(html).toMatch(/accept="[^"]*\.jpg/);
+    expect(html).toMatch(/accept="[^"]*\.jpeg/);
+    expect(html).toMatch(/accept="[^"]*\.webp/);
+  });
+
+  test('drop zone text mentions image formats', () => {
+    const html = fs.readFileSync(path.join(__dirname, 'reader.html'), 'utf-8');
+    expect(html).toMatch(/image/i);
+  });
+});
+
+// ===== Image OCR =====
+describe('Image OCR support', () => {
+  let doc, win;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    ({ doc, win } = buildDOM());
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    win.JSZip = JSZipModule.default || JSZipModule;
+    loadReaderJS(win);
+    enterReadingMode(doc, win);
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  test('parseImage exists and is exposed on window', () => {
+    expect(typeof win.parseImage).toBe('function');
+  });
+
+  test('parseImage calls OCR stub and returns extracted text', async () => {
+    jest.useRealTimers();
+    const extractedText = 'The quick brown fox jumps over the lazy dog.\n\nSecond paragraph from image.';
+    win._stubOCR = async () => extractedText;
+
+    const file = new win.Blob(['fake image data'], { type: 'image/png' });
+    file.name = 'scan.png';
+
+    const result = await win.parseImage(file);
+    expect(result).toBe(extractedText);
+  });
+
+  test('handleFile routes image files to parseImage', async () => {
+    jest.useRealTimers();
+    const extractedText = 'Extracted sentence one. Extracted sentence two.';
+    win._stubOCR = async () => extractedText;
+
+    const file = new win.Blob(['fake image data'], { type: 'image/png' });
+    file.name = 'scan.png';
+
+    await win.handleFile(file);
+
+    expect(win._readerState.totalPages).toBeGreaterThan(0);
+    expect(doc.getElementById('bookTitle').textContent).toBe('scan');
+  });
+
+  test('handleFile routes .jpg files to parseImage', async () => {
+    jest.useRealTimers();
+    win._stubOCR = async () => 'Some text from jpg.';
+
+    const file = new win.Blob(['fake jpg'], { type: 'image/jpeg' });
+    file.name = 'photo.jpg';
+
+    await win.handleFile(file);
+    expect(win._readerState.totalPages).toBeGreaterThan(0);
+  });
+
+  test('handleFile routes .jpeg files to parseImage', async () => {
+    jest.useRealTimers();
+    win._stubOCR = async () => 'Some text from jpeg.';
+
+    const file = new win.Blob(['fake jpeg'], { type: 'image/jpeg' });
+    file.name = 'photo.jpeg';
+
+    await win.handleFile(file);
+    expect(win._readerState.totalPages).toBeGreaterThan(0);
+  });
+
+  test('handleFile routes .webp files to parseImage', async () => {
+    jest.useRealTimers();
+    win._stubOCR = async () => 'Some text from webp.';
+
+    const file = new win.Blob(['fake webp'], { type: 'image/webp' });
+    file.name = 'photo.webp';
+
+    await win.handleFile(file);
+    expect(win._readerState.totalPages).toBeGreaterThan(0);
+  });
+});
+
+// ===== Export to Word =====
+describe('Export to Word (.docx)', () => {
+  let doc, win;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    ({ doc, win } = buildDOM());
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    win.JSZip = JSZipModule.default || JSZipModule;
+    loadReaderJS(win);
+    enterReadingMode(doc, win);
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  test('export button exists in HTML', () => {
+    const html = fs.readFileSync(path.join(__dirname, 'reader.html'), 'utf-8');
+    expect(html).toMatch(/id="exportDocxBtn"/);
+  });
+
+  test('exportToDocx function exists on window', () => {
+    expect(typeof win.exportToDocx).toBe('function');
+  });
+
+  test('exportToDocx generates a valid .docx blob', async () => {
+    jest.useRealTimers();
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    const JSZip = JSZipModule.default || JSZipModule;
+
+    // Set up state with content
+    const pages = [[
+      { type: 'text', text: 'Hello world. This is a test.', sentences: ['Hello world.', 'This is a test.'] },
+      { type: 'text', text: 'Second paragraph here.', sentences: ['Second paragraph here.'] }
+    ]];
+    win._readerState.pages = pages;
+    win._readerState.totalPages = 1;
+    win._readerState.fileName = 'test-doc.pdf';
+
+    // Capture the blob that would be downloaded
+    let capturedBlob = null;
+    win.URL.createObjectURL = (blob) => {
+      capturedBlob = blob;
+      return 'blob:fake';
+    };
+    win.URL.revokeObjectURL = () => {};
+
+    await win.exportToDocx();
+
+    expect(capturedBlob).not.toBeNull();
+    expect(capturedBlob.type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+    // Verify it's a valid zip with document.xml
+    const arrayBuffer = await capturedBlob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    expect(zip.file('word/document.xml')).not.toBeNull();
+    expect(zip.file('[Content_Types].xml')).not.toBeNull();
+
+    // Verify content
+    const docXml = await zip.file('word/document.xml').async('string');
+    expect(docXml).toContain('Hello world.');
+    expect(docXml).toContain('This is a test.');
+    expect(docXml).toContain('Second paragraph here.');
+  });
+
+  test('exportToDocx includes all pages', async () => {
+    jest.useRealTimers();
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    const JSZip = JSZipModule.default || JSZipModule;
+
+    const pages = [
+      [{ type: 'text', text: 'Page one content.', sentences: ['Page one content.'] }],
+      [{ type: 'text', text: 'Page two content.', sentences: ['Page two content.'] }],
+    ];
+    win._readerState.pages = pages;
+    win._readerState.totalPages = 2;
+    win._readerState.fileName = 'multipage.pdf';
+
+    let capturedBlob = null;
+    win.URL.createObjectURL = (blob) => { capturedBlob = blob; return 'blob:fake'; };
+    win.URL.revokeObjectURL = () => {};
+
+    await win.exportToDocx();
+
+    const arrayBuffer = await capturedBlob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const docXml = await zip.file('word/document.xml').async('string');
+    expect(docXml).toContain('Page one content.');
+    expect(docXml).toContain('Page two content.');
+  });
+
+  test('exportToDocx skips image paragraphs gracefully', async () => {
+    jest.useRealTimers();
+    const JSZipModule = require(path.join(__dirname, 'lib', 'jszip.min.js'));
+    const JSZip = JSZipModule.default || JSZipModule;
+
+    const pages = [[
+      { type: 'text', text: 'Text before image.', sentences: ['Text before image.'] },
+      { type: 'image', src: 'data:image/png;base64,abc', alt: 'test image' },
+      { type: 'text', text: 'Text after image.', sentences: ['Text after image.'] },
+    ]];
+    win._readerState.pages = pages;
+    win._readerState.totalPages = 1;
+    win._readerState.fileName = 'mixed.pdf';
+
+    let capturedBlob = null;
+    win.URL.createObjectURL = (blob) => { capturedBlob = blob; return 'blob:fake'; };
+    win.URL.revokeObjectURL = () => {};
+
+    await win.exportToDocx();
+
+    const arrayBuffer = await capturedBlob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const docXml = await zip.file('word/document.xml').async('string');
+    expect(docXml).toContain('Text before image.');
+    expect(docXml).toContain('Text after image.');
+  });
 });

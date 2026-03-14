@@ -17,8 +17,8 @@
     <div class="upload-area" id="dropZone">
       <div class="upload-icon">&#128214;</div>
       <h2>English Reader</h2>
-      <p>Drop a PDF, EPUB, DOCX, or TXT file here, or click to browse</p>
-      <input type="file" id="fileInput" accept=".pdf,.epub,.docx,.txt" hidden>
+      <p>Drop a PDF, EPUB, DOCX, TXT, or image file here, or click to browse</p>
+      <input type="file" id="fileInput" accept=".pdf,.epub,.docx,.txt,.png,.jpg,.jpeg,.webp" hidden>
       <button class="btn btn-primary" id="browseBtn">Browse Files</button>
     </div>
   </div>
@@ -49,6 +49,7 @@
           <button class="theme-swatch" data-theme="green" title="Green" aria-label="Green theme" style="background:#e8f5e9"></button>
         </div>
         <button class="icon-btn" id="gestureModeBtn" title="Gesture: menu mode" aria-label="Toggle gesture mode">&#9776;</button>
+        <button class="icon-btn" id="exportDocxBtn" title="Export to Word" aria-label="Export to Word">&#128230;</button>
         <button class="icon-btn" id="helpBtn" title="Feature Guide" aria-label="Feature Guide">?</button>
         <span class="page-info" id="pageInfo">Page 1</span>
       </div>
@@ -184,7 +185,7 @@
   <div class="feature-guide" id="featureGuide">
     <div class="guide-inner">
       <div class="guide-header">
-        <span class="guide-title">Feature Guide</span>
+        <span class="guide-title">Feature Guide / \u529f\u80fd\u6307\u5357</span>
         <button class="icon-btn" id="featureGuideClose" aria-label="Close feature guide">&times;</button>
       </div>
       <div class="guide-body" id="featureGuideBody"></div>

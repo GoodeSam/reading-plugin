@@ -683,11 +683,13 @@ async function handleFile(file) {
       text = await parseTXT(file);
     } else if (ext === 'docx') {
       text = await parseDOCX(file);
+    } else if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+      text = await parseImage(file);
     } else if (ext === 'doc') {
       alert('Legacy .doc format is not supported. Please convert to .docx first.');
       return;
     } else {
-      alert('Unsupported file format. Please upload a PDF, EPUB, DOCX, or TXT file.');
+      alert('Unsupported file format. Please upload a PDF, EPUB, DOCX, TXT, or image file.');
       return;
     }
 
@@ -1121,6 +1123,64 @@ async function parseDOCX(file) {
 }
 
 window.parseDOCX = parseDOCX;
+
+async function parseImage(file) {
+  // Use stub for testing
+  if (window._stubOCR) {
+    return await window._stubOCR(file);
+  }
+
+  // Convert image file to base64 data URL
+  const arrayBuffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+  const mimeType = file.type || 'image/png';
+  const dataUrl = `data:${mimeType};base64,${base64}`;
+
+  await ensureSettings();
+  if (!state.apiKey) {
+    throw new Error('Please set your OpenAI API key in the extension popup first.');
+  }
+
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${state.apiKey}`
+    },
+    body: JSON.stringify({
+      model: state.model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an OCR assistant. Extract all readable text from the image. Preserve paragraph structure using blank lines between paragraphs. Output only the extracted text, no commentary.'
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Extract all text from this image:' },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ]
+        }
+      ],
+      temperature: 0.1,
+    })
+  });
+
+  if (!resp.ok) {
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData.error?.message || `API error: ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  return data.choices[0].message.content.trim();
+}
+
+window.parseImage = parseImage;
 
 // ===== EPUB Helpers =====
 function extractPartsWithBr(element) {
@@ -2544,6 +2604,77 @@ function downloadMarkdown(filename, content) {
   URL.revokeObjectURL(url);
 }
 
+async function exportToDocx() {
+  const _JSZip = (typeof JSZip !== 'undefined') ? JSZip : window.JSZip;
+  const zip = new _JSZip();
+
+  // Collect all text paragraphs across all pages
+  const paragraphXmls = [];
+  for (const page of state.pages) {
+    for (const para of page) {
+      if (para.type !== 'text') continue;
+      const escaped = para.text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+      paragraphXmls.push(
+        `<w:p><w:r><w:t>${escaped}</w:t></w:r></w:p>`
+      );
+    }
+  }
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+            xmlns:mo="http://schemas.microsoft.com/office/mac/office/2008/main"
+            xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+            xmlns:mv="urn:schemas-microsoft-com:mac:vml"
+            xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+            xmlns:v="urn:schemas-microsoft-com:vml"
+            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+            xmlns:w10="urn:schemas-microsoft-com:office:word"
+            xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml">
+  <w:body>
+    ${paragraphXmls.join('\n    ')}
+  </w:body>
+</w:document>`;
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const wordRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+</Relationships>`;
+
+  zip.file('[Content_Types].xml', contentTypesXml);
+  zip.file('_rels/.rels', relsXml);
+  zip.file('word/document.xml', documentXml);
+  zip.file('word/_rels/document.xml.rels', wordRelsXml);
+
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  const baseName = state.fileName.replace(/\.[^.]+$/, '');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${baseName}.docx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+window.exportToDocx = exportToDocx;
+
 function exportNotes() {
   const bookNotes = state.notes.filter(n => n.book === state.fileName);
   if (bookNotes.length === 0) return;
@@ -2826,91 +2957,154 @@ const FEATURE_REGISTRY = [
     name: 'Word Lookup',
     icon: '\ud83d\udcd6',
     description: 'Click any word to see its English definition, Chinese meaning, and pronunciation.',
-    usage: 'Click a word in the text. A popup shows definitions. Click "Show Chinese Definition" for the Chinese meaning.'
+    usage: 'Click a word in the text. A popup shows definitions. Click "Show Chinese Definition" for the Chinese meaning.',
+    name_cn: '\u5355\u8bcd\u67e5\u8be2',
+    description_cn: '\u70b9\u51fb\u4efb\u610f\u5355\u8bcd\uff0c\u67e5\u770b\u82f1\u6587\u91ca\u4e49\u3001\u4e2d\u6587\u610f\u601d\u548c\u53d1\u97f3\u3002',
+    usage_cn: '\u70b9\u51fb\u6587\u672c\u4e2d\u7684\u5355\u8bcd\uff0c\u5f39\u51fa\u91ca\u4e49\u7a97\u53e3\u3002\u70b9\u51fb\u201c\u663e\u793a\u4e2d\u6587\u91ca\u4e49\u201d\u67e5\u770b\u4e2d\u6587\u610f\u601d\u3002'
   },
   {
     name: 'Sentence Translation',
     icon: '\ud83c\udf10',
     description: 'Translate any sentence to Chinese with one click or a two-finger tap.',
-    usage: 'Right-click or two-finger tap a sentence. The sentence panel opens — click "Translate" or it auto-translates on gesture.'
+    usage: 'Right-click or two-finger tap a sentence. The sentence panel opens \u2014 click "Translate" or it auto-translates on gesture.',
+    name_cn: '\u53e5\u5b50\u7ffb\u8bd1',
+    description_cn: '\u4e00\u952e\u6216\u53cc\u6307\u70b9\u51fb\u5373\u53ef\u5c06\u4efb\u610f\u53e5\u5b50\u7ffb\u8bd1\u6210\u4e2d\u6587\u3002',
+    usage_cn: '\u53f3\u952e\u6216\u53cc\u6307\u70b9\u51fb\u53e5\u5b50\uff0c\u6253\u5f00\u53e5\u5b50\u9762\u677f\u2014\u2014\u70b9\u51fb\u201c\u7ffb\u8bd1\u201d\u6216\u624b\u52bf\u6a21\u5f0f\u4e0b\u81ea\u52a8\u7ffb\u8bd1\u3002'
   },
   {
     name: 'Grammar Analysis',
     icon: '\ud83d\udd2c',
     description: 'Analyze the grammar structure of any sentence, including parts of speech, tense, and clauses.',
-    usage: 'Open a sentence panel and click "Grammar" to see a detailed grammar breakdown in Chinese.'
+    usage: 'Open a sentence panel and click "Grammar" to see a detailed grammar breakdown in Chinese.',
+    name_cn: '\u8bed\u6cd5\u5206\u6790',
+    description_cn: '\u5206\u6790\u4efb\u610f\u53e5\u5b50\u7684\u8bed\u6cd5\u7ed3\u6784\uff0c\u5305\u62ec\u8bcd\u6027\u3001\u65f6\u6001\u548c\u4ece\u53e5\u3002',
+    usage_cn: '\u6253\u5f00\u53e5\u5b50\u9762\u677f\uff0c\u70b9\u51fb\u201c\u8bed\u6cd5\u201d\u6309\u94ae\uff0c\u67e5\u770b\u8be6\u7ec6\u7684\u4e2d\u6587\u8bed\u6cd5\u89e3\u6790\u3002'
   },
   {
     name: 'Paragraph Translation',
     icon: '\ud83d\udcc4',
     description: 'Translate an entire paragraph by clicking its left margin bar.',
-    usage: 'Click the left border of any paragraph to open a popup with the full text and translation options.'
+    usage: 'Click the left border of any paragraph to open a popup with the full text and translation options.',
+    name_cn: '\u6bb5\u843d\u7ffb\u8bd1',
+    description_cn: '\u70b9\u51fb\u6bb5\u843d\u5de6\u4fa7\u8fb9\u680f\uff0c\u7ffb\u8bd1\u6574\u4e2a\u6bb5\u843d\u3002',
+    usage_cn: '\u70b9\u51fb\u4efb\u610f\u6bb5\u843d\u7684\u5de6\u4fa7\u8fb9\u6846\uff0c\u5f39\u51fa\u5305\u542b\u5168\u6587\u548c\u7ffb\u8bd1\u9009\u9879\u7684\u7a97\u53e3\u3002'
   },
   {
     name: 'Text-to-Speech',
     icon: '\ud83d\udd0a',
     description: 'Listen to any sentence read aloud with natural pronunciation.',
-    usage: 'Open a sentence panel and click "Listen" to hear the sentence spoken aloud.'
+    usage: 'Open a sentence panel and click "Listen" to hear the sentence spoken aloud.',
+    name_cn: '\u6587\u5b57\u8f6c\u8bed\u97f3',
+    description_cn: '\u4ee5\u81ea\u7136\u53d1\u97f3\u6717\u8bfb\u4efb\u610f\u53e5\u5b50\u3002',
+    usage_cn: '\u6253\u5f00\u53e5\u5b50\u9762\u677f\uff0c\u70b9\u51fb\u201c\u6536\u542c\u201d\u6309\u94ae\u5373\u53ef\u6717\u8bfb\u3002'
   },
   {
     name: 'Search',
     icon: '\ud83d\udd0d',
     description: 'Search for any word or phrase across the entire book.',
-    usage: 'Click the search icon in the top bar or press Ctrl+F. Type your query and use arrow buttons to navigate matches.'
+    usage: 'Click the search icon in the top bar or press Ctrl+F. Type your query and use arrow buttons to navigate matches.',
+    name_cn: '\u641c\u7d22',
+    description_cn: '\u5728\u6574\u672c\u4e66\u4e2d\u641c\u7d22\u4efb\u610f\u5355\u8bcd\u6216\u77ed\u8bed\u3002',
+    usage_cn: '\u70b9\u51fb\u9876\u90e8\u680f\u7684\u641c\u7d22\u56fe\u6807\u6216\u6309 Ctrl+F\u3002\u8f93\u5165\u5173\u952e\u8bcd\uff0c\u4f7f\u7528\u7bad\u5934\u6309\u94ae\u6d4f\u89c8\u5339\u914d\u7ed3\u679c\u3002'
   },
   {
     name: 'Bookmarks',
     icon: '\u2606',
     description: 'Bookmark your current reading position for quick access later.',
-    usage: 'Click the star icon in the top bar to bookmark the current page. Long-press the star to remove the bookmark.'
+    usage: 'Click the star icon in the top bar to bookmark the current page. Long-press the star to remove the bookmark.',
+    name_cn: '\u4e66\u7b7e',
+    description_cn: '\u6807\u8bb0\u5f53\u524d\u9605\u8bfb\u4f4d\u7f6e\uff0c\u65b9\u4fbf\u4e0b\u6b21\u5feb\u901f\u8bbf\u95ee\u3002',
+    usage_cn: '\u70b9\u51fb\u9876\u90e8\u680f\u7684\u661f\u6807\u56fe\u6807\u6536\u85cf\u5f53\u524d\u9875\u9762\u3002\u957f\u6309\u661f\u6807\u53ef\u5220\u9664\u4e66\u7b7e\u3002'
   },
   {
     name: 'Notes',
     icon: '\ud83d\udcdd',
     description: 'Highlight text and save personal notes while reading.',
-    usage: 'Select text and click "Note" in the toolbar. View all notes by clicking the notes icon on the right side.'
+    usage: 'Select text and click "Note" in the toolbar. View all notes by clicking the notes icon on the right side.',
+    name_cn: '\u7b14\u8bb0',
+    description_cn: '\u9605\u8bfb\u65f6\u9009\u4e2d\u6587\u672c\u5e76\u4fdd\u5b58\u4e2a\u4eba\u7b14\u8bb0\u3002',
+    usage_cn: '\u9009\u4e2d\u6587\u672c\u540e\u70b9\u51fb\u5de5\u5177\u680f\u4e2d\u7684\u201c\u7b14\u8bb0\u201d\u3002\u70b9\u51fb\u53f3\u4fa7\u7684\u7b14\u8bb0\u56fe\u6807\u67e5\u770b\u6240\u6709\u7b14\u8bb0\u3002'
   },
   {
     name: 'Word List',
     icon: 'Aa',
     description: 'Automatically records every word you look up with query count, definitions, pronunciation, and sentence context.',
-    usage: 'Words are recorded automatically when you look them up. Click the "Aa" icon to view your word list. Export as Markdown.'
+    usage: 'Words are recorded automatically when you look them up. Click the "Aa" icon to view your word list. Export as Markdown.',
+    name_cn: '\u751f\u8bcd\u672c',
+    description_cn: '\u81ea\u52a8\u8bb0\u5f55\u6bcf\u4e2a\u67e5\u8be2\u7684\u5355\u8bcd\uff0c\u5305\u62ec\u67e5\u8be2\u6b21\u6570\u3001\u91ca\u4e49\u3001\u53d1\u97f3\u548c\u4e0a\u4e0b\u6587\u3002',
+    usage_cn: '\u67e5\u8be2\u5355\u8bcd\u65f6\u81ea\u52a8\u8bb0\u5f55\u3002\u70b9\u51fb\u201cAa\u201d\u56fe\u6807\u67e5\u770b\u751f\u8bcd\u672c\uff0c\u53ef\u5bfc\u51fa\u4e3a Markdown \u6587\u4ef6\u3002'
   },
   {
     name: 'Reading History',
     icon: '\ud83d\udd51',
     description: 'Automatically saves your reading position so you can resume where you left off.',
-    usage: 'Click the clock icon to view your reading history. Click any entry to jump back to that position.'
+    usage: 'Click the clock icon to view your reading history. Click any entry to jump back to that position.',
+    name_cn: '\u9605\u8bfb\u5386\u53f2',
+    description_cn: '\u81ea\u52a8\u4fdd\u5b58\u9605\u8bfb\u4f4d\u7f6e\uff0c\u65b9\u4fbf\u4e0b\u6b21\u7ee7\u7eed\u9605\u8bfb\u3002',
+    usage_cn: '\u70b9\u51fb\u65f6\u949f\u56fe\u6807\u67e5\u770b\u9605\u8bfb\u5386\u53f2\u3002\u70b9\u51fb\u4efb\u610f\u8bb0\u5f55\u5373\u53ef\u8df3\u8f6c\u5230\u8be5\u4f4d\u7f6e\u3002'
   },
   {
     name: 'Page Themes',
     icon: '\ud83c\udfa8',
     description: 'Choose from four background colors (white, dark, sepia, green) for comfortable reading.',
-    usage: 'Click a color swatch in the top bar to switch themes. Text and paragraph colors adjust automatically.'
+    usage: 'Click a color swatch in the top bar to switch themes. Text and paragraph colors adjust automatically.',
+    name_cn: '\u9875\u9762\u4e3b\u9898',
+    description_cn: '\u63d0\u4f9b\u56db\u79cd\u80cc\u666f\u8272\uff08\u767d\u8272\u3001\u6df1\u8272\u3001\u590d\u53e4\u3001\u7eff\u8272\uff09\uff0c\u8212\u9002\u9605\u8bfb\u3002',
+    usage_cn: '\u70b9\u51fb\u9876\u90e8\u680f\u7684\u989c\u8272\u8272\u5757\u5207\u6362\u4e3b\u9898\u3002\u6587\u5b57\u548c\u6bb5\u843d\u989c\u8272\u4f1a\u81ea\u52a8\u8c03\u6574\u3002'
   },
   {
     name: 'Font Size',
     icon: 'A',
     description: 'Adjust the reading font size for comfort.',
-    usage: 'Click "A-" to decrease or "A+" to increase the font size in the top bar.'
+    usage: 'Click "A-" to decrease or "A+" to increase the font size in the top bar.',
+    name_cn: '\u5b57\u4f53\u5927\u5c0f',
+    description_cn: '\u8c03\u6574\u9605\u8bfb\u5b57\u4f53\u5927\u5c0f\uff0c\u83b7\u5f97\u8212\u9002\u7684\u9605\u8bfb\u4f53\u9a8c\u3002',
+    usage_cn: '\u5728\u9876\u90e8\u680f\u70b9\u51fb\u201cA-\u201d\u7f29\u5c0f\u6216\u201cA+\u201d\u653e\u5927\u5b57\u4f53\u3002'
   },
   {
     name: 'Content Width',
     icon: '\u2194',
     description: 'Adjust the content column width to your preferred reading width.',
-    usage: 'Click the narrower/wider arrows in the top bar to adjust the content width.'
+    usage: 'Click the narrower/wider arrows in the top bar to adjust the content width.',
+    name_cn: '\u5185\u5bb9\u5bbd\u5ea6',
+    description_cn: '\u8c03\u6574\u5185\u5bb9\u680f\u5bbd\u5ea6\uff0c\u9002\u5e94\u4e0d\u540c\u7684\u9605\u8bfb\u504f\u597d\u3002',
+    usage_cn: '\u70b9\u51fb\u9876\u90e8\u680f\u7684\u5bbd\u7a84\u7bad\u5934\u8c03\u6574\u5185\u5bb9\u5bbd\u5ea6\u3002'
   },
   {
     name: 'Page Navigation',
     icon: '\ud83d\udcc3',
     description: 'Navigate between pages or jump directly to a specific page number.',
-    usage: 'Use Previous/Next buttons, or click the page indicator at the bottom to type a page number and press Enter.'
+    usage: 'Use Previous/Next buttons, or click the page indicator at the bottom to type a page number and press Enter.',
+    name_cn: '\u9875\u9762\u5bfc\u822a',
+    description_cn: '\u5728\u9875\u9762\u4e4b\u95f4\u5bfc\u822a\u6216\u76f4\u63a5\u8df3\u8f6c\u5230\u6307\u5b9a\u9875\u7801\u3002',
+    usage_cn: '\u4f7f\u7528\u201c\u4e0a\u4e00\u9875/\u4e0b\u4e00\u9875\u201d\u6309\u94ae\uff0c\u6216\u70b9\u51fb\u5e95\u90e8\u9875\u7801\u6307\u793a\u5668\u8f93\u5165\u9875\u7801\u540e\u6309\u56de\u8f66\u3002'
   },
   {
     name: 'Auto-Hide Bars',
     icon: '\ud83d\udc41',
     description: 'Top and bottom bars hide automatically during reading to maximize screen space.',
-    usage: 'Bars hide after 3 seconds of inactivity. Move mouse to the top or bottom edge of the screen to reveal them.'
+    usage: 'Bars hide after 3 seconds of inactivity. Move mouse to the top or bottom edge of the screen to reveal them.',
+    name_cn: '\u81ea\u52a8\u9690\u85cf\u680f',
+    description_cn: '\u9605\u8bfb\u65f6\u9876\u90e8\u548c\u5e95\u90e8\u680f\u81ea\u52a8\u9690\u85cf\uff0c\u6700\u5927\u5316\u5c4f\u5e55\u7a7a\u95f4\u3002',
+    usage_cn: '\u505c\u6b62\u64cd\u4f5c3\u79d2\u540e\u81ea\u52a8\u9690\u85cf\u3002\u5c06\u9f20\u6807\u79fb\u5230\u5c4f\u5e55\u9876\u90e8\u6216\u5e95\u90e8\u8fb9\u7f18\u5373\u53ef\u663e\u793a\u3002'
+  },
+  {
+    name: 'Export to Word',
+    icon: '\ud83d\udce6',
+    description: 'Export the current document as a Word (.docx) file.',
+    usage: 'Click the export icon in the top bar to download the document content as a .docx file.',
+    name_cn: '\u5bfc\u51fa\u4e3a Word',
+    description_cn: '\u5c06\u5f53\u524d\u6587\u6863\u5bfc\u51fa\u4e3a Word (.docx) \u6587\u4ef6\u3002',
+    usage_cn: '\u70b9\u51fb\u9876\u90e8\u680f\u7684\u5bfc\u51fa\u56fe\u6807\uff0c\u4e0b\u8f7d\u6587\u6863\u5185\u5bb9\u4e3a .docx \u6587\u4ef6\u3002'
+  },
+  {
+    name: 'Image OCR',
+    icon: '\ud83d\uddbc',
+    description: 'Upload an image file and extract text using AI-powered OCR.',
+    usage: 'Drop or browse for a .png, .jpg, .jpeg, or .webp image file. Text is extracted automatically via the OpenAI Vision API.',
+    name_cn: '\u56fe\u7247\u6587\u5b57\u8bc6\u522b',
+    description_cn: '\u4e0a\u4f20\u56fe\u7247\u6587\u4ef6\uff0c\u4f7f\u7528 AI \u9a71\u52a8\u7684 OCR \u63d0\u53d6\u6587\u5b57\u3002',
+    usage_cn: '\u62d6\u653e\u6216\u6d4f\u89c8\u9009\u62e9 .png\u3001.jpg\u3001.jpeg \u6216 .webp \u56fe\u7247\u6587\u4ef6\u3002\u901a\u8fc7 OpenAI Vision API \u81ea\u52a8\u63d0\u53d6\u6587\u5b57\u3002'
   },
 ];
 
@@ -2920,9 +3114,28 @@ const featureGuide = document.getElementById('featureGuide');
 const featureGuideClose = document.getElementById('featureGuideClose');
 const featureGuideBody = document.getElementById('featureGuideBody');
 const helpBtn = document.getElementById('helpBtn');
+const exportDocxBtn = document.getElementById('exportDocxBtn');
+
+let guideLang = 'en';
 
 function renderFeatureGuide() {
   featureGuideBody.innerHTML = '';
+
+  // Language toggle
+  const langToggle = document.createElement('div');
+  langToggle.className = 'guide-lang-toggle';
+  const btnEn = document.createElement('button');
+  btnEn.className = 'btn btn-sm guide-lang-btn' + (guideLang === 'en' ? ' active' : '');
+  btnEn.textContent = 'English';
+  const btnCn = document.createElement('button');
+  btnCn.className = 'btn btn-sm guide-lang-btn' + (guideLang === 'cn' ? ' active' : '');
+  btnCn.textContent = '\u4e2d\u6587';
+  btnEn.addEventListener('click', () => { guideLang = 'en'; renderFeatureGuide(); });
+  btnCn.addEventListener('click', () => { guideLang = 'cn'; renderFeatureGuide(); });
+  langToggle.appendChild(btnEn);
+  langToggle.appendChild(btnCn);
+  featureGuideBody.appendChild(langToggle);
+
   for (const f of FEATURE_REGISTRY) {
     const card = document.createElement('div');
     card.className = 'guide-card';
@@ -2934,9 +3147,15 @@ function renderFeatureGuide() {
         '<div class="guide-card-usage"></div>' +
       '</div>';
     card.querySelector('.guide-card-icon').textContent = f.icon;
-    card.querySelector('.guide-card-name').textContent = f.name;
-    card.querySelector('.guide-card-desc').textContent = f.description;
-    card.querySelector('.guide-card-usage').textContent = f.usage;
+    if (guideLang === 'cn') {
+      card.querySelector('.guide-card-name').textContent = f.name_cn || f.name;
+      card.querySelector('.guide-card-desc').textContent = f.description_cn || f.description;
+      card.querySelector('.guide-card-usage').textContent = f.usage_cn || f.usage;
+    } else {
+      card.querySelector('.guide-card-name').textContent = f.name;
+      card.querySelector('.guide-card-desc').textContent = f.description;
+      card.querySelector('.guide-card-usage').textContent = f.usage;
+    }
     featureGuideBody.appendChild(card);
   }
 }
@@ -2951,6 +3170,7 @@ function closeFeatureGuide() {
 }
 
 helpBtn.addEventListener('click', openFeatureGuide);
+if (exportDocxBtn) exportDocxBtn.addEventListener('click', exportToDocx);
 featureGuideClose.addEventListener('click', closeFeatureGuide);
 
 // Click outside guide-inner to close
